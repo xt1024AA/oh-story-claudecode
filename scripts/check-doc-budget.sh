@@ -88,7 +88,10 @@ const weigh = (entry) => {
   const abs = path.join(repoRoot, rel);
   let value = null;
   if (fs.existsSync(abs)) {
-    const text = fs.readFileSync(abs, "utf8");
+    // Windows 检出默认 core.autocrlf=true（本仓无 .gitattributes），文件是 CRLF。
+    // 不归一化行尾，`(.*)$` 里的 `.` 不匹配 `\r`，所有 `文件#小节` 都会误报「小节找不到」：
+    // 整份清单 100% 变红，且读数与 LF 检出不一致。`\s` 在去空白计量里本就被剔除，归一化不改读数。
+    const text = fs.readFileSync(abs, "utf8").replace(/\r\n?/g, "\n");
     if (hash < 0) value = strip(text);
     else {
       const body = sectionOf(text, entry.slice(hash + 1));

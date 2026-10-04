@@ -1,6 +1,8 @@
-# DSH 插件子包的落点与身份
+# Agent Note: DSH 插件子包的落点与身份
 
-对应 wayfinder 地图 #1「DSH 插件化：把 oh-story-claudecode 装进 DeepSeek Harness」下的决策票 #4「定子包落点、包名与工作区形态」。决策由作者 2026-10-03 裁决。
+Status: implemented
+
+对应 wayfinder 地图 #1「DSH 插件化：把 oh-story-claudecode 装进 DeepSeek Harness」下的决策票 #4「定子包落点、包名与工作区形态」。决策由作者 2026-10-03 裁决；#5/#6/#7 落地后（`packages/dsh-plugin/`，commit `517f922`、`8fb9c28`、`a0ccced`），本笔记随同代码转入 `implemented/`。
 
 ## Problem
 
@@ -17,8 +19,6 @@
 2. **包名**：`dsh-oh-story-claudecode`（不带 npm scope）。
 3. **工作区形态**：**子包完全独立，根 `package.json` 零改动**。子包自带 `package.json` 与自己的安装入口，不进任何 workspace。
 4. **守卫可见性**：子包里的 vendored skills **不纳入**热路径守卫（`check-doc-budget.sh` 等）；副本与源的漂移由 #7 另立的 **parity 校验脚本** 负责。
-
-本笔记落 `proposed/`：决策已定、代码未落地；#5/#6/#7 实施完成后随同代码转 `implemented/`。
 
 ## Alternatives considered
 
@@ -44,7 +44,7 @@
 
 - **把子包副本纳入现有热路径守卫。**
   最强理由：一套规则管到底，将来不会出现「源被管、副本没人管」的缝隙。
-  为何不用：副本与源逐字相同，同一份文本在 CI 里被计费两次没有信息增量；且 `check-doc-budget.sh` 走 `doc-budget.json` 白名单、`check-plugin-packaging.py` 只认根目录 `skills/`，副本**天然就在扫描面之外**（已实测）。真正要防的是「副本漂了」，那是 parity 校验的职责（#7），不是预算守卫的职责。
+  为何不用：副本与源逐字相同，同一份文本在 CI 里被计费两次没有信息增量；且 `check-doc-budget.sh` 走 `doc-budget.json` 白名单、`check-plugin-packaging.py` 只认根目录 `skills/`，副本**天然就在扫描面之外**（已实测；#10 复验：全部守卫的扫描根是 `skills/`、`demo/`、`.agents/notes/` 与显式清单，`packages/` 不在其中）。真正要防的是「副本漂了」，那是 parity 校验的职责（#7），不是预算守卫的职责。
 
 ## Consequences
 
@@ -57,5 +57,5 @@
 代价与风险：
 
 - **多一次安装动作**：子包依赖要单独 `npm install`，根目录一次装全的便利没有了。
-- **副本无人守**：在 #7 的 parity 校验落地之前，子包里的 skills 副本会处于「既不进热路径守卫、也还没有 parity 守卫」的窗口期；实施时 #7 必须与 #6 同批完成。
+- **副本无人守**：在 #7 的 parity 校验落地之前，子包里的 skills 副本会处于「既不进热路径守卫、也还没有 parity 守卫」的窗口期；实施时 #7 必须与 #6 同批完成（已完成）。
 - 包名 `dsh-oh-story-claudecode` 不带 scope，日后若要发公共 npm 需先确认不撞名。

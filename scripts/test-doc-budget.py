@@ -16,13 +16,18 @@ CHECKER = REPO_ROOT / "scripts" / "check-doc-budget.sh"
 
 
 class DocBudgetCliTests(unittest.TestCase):
-    def run_checker(self, files: dict[str, str], manifest: dict) -> subprocess.CompletedProcess[str]:
+    def run_checker(
+        self,
+        files: dict[str, str],
+        manifest: dict,
+        write_newline: str | None = None,
+    ) -> subprocess.CompletedProcess[str]:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             for relative, content in files.items():
                 target = root / relative
                 target.parent.mkdir(parents=True, exist_ok=True)
-                target.write_text(content, encoding="utf-8")
+                target.write_text(content, encoding="utf-8", newline=write_newline)
             manifest_path = root / "budget.json"
             manifest_path.write_text(json.dumps(manifest, ensure_ascii=False), encoding="utf-8")
             return subprocess.run(
@@ -215,6 +220,23 @@ class DocBudgetCliTests(unittest.TestCase):
         )
         self.assertEqual(missing.returncode, 1, missing.stdout)
         self.assertIn("路径「拼错」登记的小节找不到：m.md#不存在的节", missing.stdout)
+
+    def test_section_anchor_survives_crlf_checkout(self) -> None:
+        # Windows 检出默认 core.autocrlf=true（本仓无 .gitattributes），工作区文件是 CRLF。
+        # 读取时不归一化行尾，`(.*)$` 里的 `.` 不匹配 `\r`，标题行整体匹配失败，
+        # 全部 `文件#小节` 都会误报「小节找不到」——按节计量在 Windows 上等于不可用。
+        doc = "# 手册\n## 决策路由\n路由\n## 第二节\n很长很长很长\n"
+        result = self.run_checker(
+            {"m.md": doc},
+            {"files": [], "paths": [{"label": "按节读", "budget": 100,
+                                     "files": ["m.md#决策路由", "m.md#第二节"]}]},
+            write_newline="\r\n",
+        )
+        self.assertEqual(result.returncode, 0, result.stdout)
+        routed = len(re.sub(r"\s", "", "## 决策路由\n路由"))
+        second = len(re.sub(r"\s", "", "## 第二节\n很长很长很长"))
+        # 行尾不参与计量：CRLF 与 LF 的读数必须一致。
+        self.assertRegex(result.stdout, re.compile(rf"\b{routed + second}\s*/\s*100\b.*按节读"))
 
     def test_generated_brief_is_measured_by_running_its_script(self) -> None:
         script = "import json, sys\nassert sys.argv[1] == '--project'\nprint(json.dumps({'chars': int(sys.argv[3])}))\n"
