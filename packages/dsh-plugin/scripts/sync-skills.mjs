@@ -47,6 +47,19 @@ function filesEqual(a, b) {
   return readFileSync(a).equals(readFileSync(b));
 }
 
+/** 递归删除 dir 下所有空目录（自底向上）；保留 dir 本身（调用方决定）。 */
+function removeEmptyDirs(dir, root = true) {
+  if (!existsSync(dir)) return;
+  for (const entry of readdirSync(dir)) {
+    const full = path.join(dir, entry);
+    if (statSync(full).isDirectory()) removeEmptyDirs(full, false);
+  }
+  if (!root) {
+    const remaining = readdirSync(dir);
+    if (remaining.length === 0) rmSync(dir, { recursive: true, force: true });
+  }
+}
+
 const srcFiles = collectFiles(SRC_DIR);
 const dstFiles = collectFiles(DST_DIR);
 
@@ -94,4 +107,7 @@ for (const f of changed) {
   rmSync(path.join(DST_DIR, f), { recursive: true, force: true });
 }
 cpSync(SRC_DIR, DST_DIR, { recursive: true, force: true });
+// 复制后清理副本中「源不存在」的空目录壳（如占位 skill 留下的空父目录）；
+// DST_DIR 本身若变空也不删（skills/ 是包的必要目录，由 root=true 保留）。
+removeEmptyDirs(DST_DIR);
 console.log(`[sync-skills] 同步完成：${srcFiles.length} 个文件已就位。`);
