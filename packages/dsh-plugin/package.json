@@ -1,10 +1,14 @@
 {
   "name": "dsh-oh-story-claudecode",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "DSH 插件骨架原型（wayfinder #5）：验证装配、工具注册与随包 skills 发现通路。",
+  "description": "网文写作 DSH 插件：13 个 Oh Story 写作 skill 随包交付（story-setup / long-write / short-write / deslop / review / cover 等），确定性脚本将陆续暴露为 DSH 工具。",
   "main": "./lib/index.js",
+  "scripts": {
+    "test:parity": "node scripts/check-parity.mjs",
+    "sync:skills": "node scripts/sync-skills.mjs"
+  },
   "exports": {
     ".": "./lib/index.js",
     "./package.json": "./package.json"
