@@ -1,0 +1,35 @@
+{
+  "name": "dsh-oh-story-claudecode",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "description": "DSH 插件骨架原型（wayfinder #5）：验证装配、工具注册与随包 skills 发现通路。",
+  "main": "./lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib",
+    "skills",
+    "cordis.patch.yml",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/dsh-skill-filesystem": "0.2.0-rc.2"
+  },
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness",
+    "webnovel"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  }
+}
