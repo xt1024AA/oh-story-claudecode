@@ -1,25 +1,44 @@
 /**
- * dsh-oh-story-claudecode —— DSH 插件骨架原型
+ * dsh-oh-story-claudecode —— DSH 插件装配入口（wayfinder #8 落地）。
  *
- * 这是 wayfinder 票 #5 的**一次性探针**，不是最终实现。它只回答两个问题：
- * （1）一个本地子包，能不能被 `dsh plugin --profile desktop add <路径>` 装上，
- *      并把工具注册进 agent 工具面、可被真实调用？
- * （2）插件自带的 `skills/` 目录，能不能挂进 DSH 的 skill 表？
+ * 这份文件只做装配：建 runtime、注册全部工具、挂随包 skills。
+ * 业务逻辑全部在 lib/tools/*.js 与 lib/runtime/*.js 里，这里不写判定。
  *
- * 刻意压到最小：一个探针工具（固定返回，不碰用户文件）+ 一个占位 skill。
- * #5 通过后，真正的清单与工具封装在 #6 / #7 / #8 里做。
+ * 工具面（#8 验收，命名对齐 DSH 生态习惯，`oh_story_*` 前缀）：
  *
- * 规范依据（本机实测结论，见 docs/research/dsh-plugin-spec.md）：
- * - 导出形态二选一、禁止混用：`export function apply(ctx, config)` 或 default 导出 service class（§2.4）。
- * - 工具注册：`ctx.tools.register(definition): () => void`，返回的是「精确撤销器」（§3.1）。
- * - 工具的 `parameters` 是**原始 JSON Schema**（不是 zod、不是 schemastery），
- *   `output` 是必填的 `{ schema, render }`（§3.3）。
- * - 随包 skills 不自造发现逻辑：挂官方 `@deepseek-ai/dsh-skill-filesystem` 提供方，
- *   把自带目录作为 `bundledSkillDir` 传进去（rank 600）（§4.1 / §4.2）。
+ *   | 工具 | 只读/破坏性 | 说明 |
+ *   | --- | --- | --- |
+ *   | oh_story_env | 只读 | Python/Node 探测链 + 随包脚本落点诊断 |
+ *   | oh_story_wordcount | 只读 | 字数口径 visible_chars_v1（measure/check/checkpoint） |
+ *   | oh_story_chapter_check | 默认只读；fixPunctuation=true 破坏性（审批） | storyctl chapter check |
+ *   | oh_story_chapter_commit | 破坏性（独立工具名 + 审批） | storyctl chapter commit，含不幂等失败引导 |
+ *   | oh_story_ai_patterns_check | 只读 | check-ai-patterns.js |
+ *   | oh_story_degeneration_check | 只读 | check-degeneration.js |
+ *   | oh_story_punctuation_normalize | 默认只读；fix=true 破坏性（审批） | normalize-punctuation.js |
+ *   | oh_story_probe | 只读 | #5 探针（保留：装机自检用） |
+ *
+ * 规范依据（docs/research/dsh-plugin-spec.md）与安全语义（#12，笔记
+ * .agents/notes/proposed/architecture/2026-10-04-dsh-plugin-tool-safety-semantics.md）：
+ * - 工具注册：`ctx.tools.register(definition): () => void`，`output` 必填（§3.1/§3.3）；
+ * - `parameters` 是原始 JSON Schema（不是 zod/schemastery）；
+ * - 破坏性动作：默认只读 + 显式开关 + 人工审批（`ctx.approval.request`），
+ *   审批通道不可用时回退显式 confirm（见 lib/runtime/approval.js）；
+ * - 随包 skills：`bundledSkillDir` + `@deepseek-ai/dsh-skill-filesystem`，rank 600（§4.1）。
+ *
+ * 开发循环铁律（地图 Notes 实测）：改动本文件 / 任何 lib 模块后**必须重启 DSH**
+ * 才生效——运行中进程缓存已加载的 JS 模块，HMR 只热加新条目、不热换已有模块。
  */
 
 import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+import { createRuntime } from "./runtime/index.js";
+import { createEnvTool } from "./tools/env.js";
+import { createWordcountTool } from "./tools/wordcount.js";
+import { createChapterCheckTool } from "./tools/chapter-check.js";
+import { createChapterCommitTool } from "./tools/chapter-commit.js";
+import { createAiPatternsTool } from "./tools/ai-patterns.js";
+import { createDegenerationTool } from "./tools/degeneration.js";
+import { createPunctuationTool } from "./tools/punctuation.js";
 
 /** 插件行名。必须与 cordis.patch.yml 里的 id / name 以及包名一致。 */
 export const name = "dsh-oh-story-claudecode";
@@ -28,17 +47,16 @@ export const name = "dsh-oh-story-claudecode";
 export const inject = ["tools"];
 
 const TAG = "[dsh-oh-story-claudecode]";
-const VERSION = "0.0.2";
+/** 与 package.json 的 version 保持一致（#8 起 0.2.0，工具面落地）。 */
+const VERSION = "0.2.0";
 
 /** 随包 skills 根目录：与 lib/ 同级。用 import.meta.url 解析，保证插件被装到别处也能读。 */
 const BUNDLED_SKILL_DIR = fileURLToPath(new URL("../skills/", import.meta.url));
 
 /**
- * skills 挂载的**可观测状态**。
- *
- * 为什么要把它挂到模块级、并由探针工具回报：本机实测发现宿主日志没有落盘，
- * 于是「skill 没被发现」这一现象分不清是「提供方没挂上」还是「会话快照早于安装」。
- * 把挂载结果做成工具输出的一部分，任何人调一次探针就能拿到确定答案，不必去翻日志。
+ * skills 挂载的**可观测状态**（#5 的探针设计保留）：
+ * 宿主日志不落盘，于是「skill 没被发现」分不清是「提供方没挂上」还是「会话快照早于安装」。
+ * 把挂载结果做成工具输出的一部分，调一次就能拿到确定答案。
  */
 const skillsMount = {
   attempted: false,
@@ -47,12 +65,13 @@ const skillsMount = {
   detail: "尚未尝试挂载",
 };
 
-/** 探针工具定义。只报告事实，不读写任何用户文件。 */
+/** #5 探针工具定义：只报告事实，不读写任何用户文件。保留它让装机自检有稳定入口。 */
 const PROBE_TOOL = {
   name: "oh_story_probe",
   description:
-    "骨架探针：返回 DSH 插件 dsh-oh-story-claudecode 的装载事实（插件名、版本、随包 skills 目录是否就位、" +
-    "随包 skills 是否挂载成功、以及调用方传入的回显字符串）。仅用于验证插件通路，不读写用户任何文件。",
+    "装机探针：返回 DSH 插件 dsh-oh-story-claudecode 的装载事实（插件名、版本、随包 skills 目录是否就位、" +
+    "随包 skills 是否挂载成功、以及调用方传入的回显字符串）。仅用于验证插件通路，不读写用户任何文件。" +
+    "环境与脚本健康度请用 oh_story_env。",
   parameters: {
     type: "object",
     additionalProperties: false,
@@ -105,9 +124,6 @@ const PROBE_TOOL = {
       },
     ],
   },
-  /**
-   * @param {{ echo?: string }} args
-   */
   async execute(args) {
     return {
       ok: true,
@@ -120,25 +136,17 @@ const PROBE_TOOL = {
       skillsProvider: skillsMount.provider,
       skillsMountDetail: skillsMount.detail,
       echo: args?.echo,
-      note: "这是 wayfinder #5 的骨架探针；真正的写作工具在 #8 落地。",
+      note: "写作工具（oh_story_* 系列）已随 #8 落地；先跑 oh_story_env 看环境。",
     };
   },
 };
 
-/**
- * 注册探针工具。
- *
- * `structuredClone` 深拷贝参数表 —— 与官方大插件（dsh-scriptor）的做法一致，
- * 避免工具注册表反过来改到本模块的常量。
- *
- * @returns {boolean} 是否注册成功
- */
+/** 注册探针工具（#5 原样，保留）。 */
 function registerProbeTool(ctx) {
   if (typeof ctx.tools?.register !== "function") {
-    ctx.logger?.warn?.(`${TAG} 工具未注册：ctx.tools.register 不可用（宿主版本不符？）`);
+    ctx.logger?.warn?.(`${TAG} 探针工具未注册：ctx.tools.register 不可用（宿主版本不符？）`);
     return false;
   }
-
   const off = ctx.tools.register({
     name: PROBE_TOOL.name,
     description: PROBE_TOOL.description,
@@ -146,26 +154,77 @@ function registerProbeTool(ctx) {
     output: PROBE_TOOL.output,
     execute: (args) => PROBE_TOOL.execute(args ?? {}),
   });
-
   if (typeof ctx.effect === "function" && typeof off === "function") {
     ctx.effect(() => off);
   }
-
   ctx.logger?.info?.(`${TAG} 已注册探针工具 ${PROBE_TOOL.name}`);
   return true;
 }
 
 /**
- * 挂载随包 skills。
+ * 注册全部写作工具。
  *
- * 这里用**动态** import 而不是官方样本那种静态 import，是刻意的：
- * 静态 import 解析失败会让整个插件加载失败、连探针工具一起丢掉 —— 那样就分不清
- * 「装配没生效」和「skills 提供方解析不到」两种病因了。动态 import + try/catch
- * 把失败隔离在 skills 这一半，并把**确切错误原文**记进 skillsMount.detail，
- * 由探针工具回报出来。
+ * 每个工具都用 `structuredClone` 深拷贝参数表（与官方大插件 dsh-scriptor 的做法一致），
+ * 避免工具注册表反过来改到模块常量。disposer 逐个收集，走 `ctx.effect` 在卸载时逆序释放。
  *
- * 为什么这不影响结论有效性：ESM 的动态 import 与静态 import 走同一套模块解析，
- * 所以「动态 import 解析不到」蕴含「静态 import 同样解析不到」。
+ * @param {object} ctx
+ * @param {object} runtime createRuntime 的产物
+ * @returns {number} 注册成功的工具数
+ */
+function registerTools(ctx, runtime) {
+  if (typeof ctx.tools?.register !== "function") {
+    ctx.logger?.warn?.(`${TAG} 写作工具未注册：ctx.tools.register 不可用（宿主版本不符？）`);
+    return 0;
+  }
+
+  const factories = [
+    createEnvTool(runtime),
+    createWordcountTool(runtime),
+    createChapterCheckTool(runtime),
+    createChapterCommitTool(runtime),
+    createAiPatternsTool(runtime),
+    createDegenerationTool(runtime),
+    createPunctuationTool(runtime),
+  ];
+
+  const disposers = [];
+  let count = 0;
+  for (const def of factories) {
+    try {
+      const off = ctx.tools.register({
+        name: def.name,
+        description: def.description,
+        parameters: structuredClone(def.parameters),
+        output: def.output,
+        execute: (args, exec) => def.execute(args, exec),
+      });
+      if (typeof off === "function") disposers.push(off);
+      count += 1;
+      ctx.logger?.info?.(`${TAG} 已注册工具 ${def.name}`);
+    } catch (err) {
+      ctx.logger?.warn?.(`${TAG} 工具 ${def.name} 注册失败：${err?.message ?? err}`);
+    }
+  }
+
+  if (disposers.length > 0 && typeof ctx.effect === "function") {
+    ctx.effect(() => {
+      for (const off of disposers.reverse()) {
+        try {
+          off();
+        } catch {
+          // 单个 disposer 失败不影响其它清理
+        }
+      }
+    });
+  }
+
+  ctx.logger?.info?.(`${TAG} 写作工具注册完成：${count}/${factories.length}`);
+  return count;
+}
+
+/**
+ * 挂载随包 skills（#5 的设计保留，见头注）。
+ * 动态 import 隔离失败：skills 这一半出问题不影响工具注册。
  */
 async function mountBundledSkills(ctx) {
   skillsMount.attempted = true;
@@ -194,10 +253,7 @@ async function mountBundledSkills(ctx) {
   try {
     ctx.inject(["skills"], (scope) => {
       scope.plugin(skillFilesystem, {
-        // 提供方名要唯一，避免与其它插件（如宿主自带的 filesystem 提供方）撞名。
         providerName: skillsMount.provider,
-        // 只留自带根：本次探针只关心「插件的 skills 有没有被发现」，
-        // 不想把项目根 / 用户根一并拉进来干扰判断。
         includeDefaultRoots: false,
         bundledSkillDir: BUNDLED_SKILL_DIR,
       });
@@ -212,15 +268,18 @@ async function mountBundledSkills(ctx) {
 }
 
 /**
- * cordis 插件入口（§2.4 的第一种形态）。
+ * cordis 插件入口（§2.4 第一种形态：`export function apply`）。
  *
- * @param {any} ctx cordis 上下文
- * @param {any} config 来自 cordis.patch.yml 中该条目的 config（本探针未声明 Config，故不使用）
+ * @param {object} ctx cordis 上下文
+ * @param {object} _config 来自 cordis.patch.yml 中该条目的 config（未声明 Config，不使用）
  */
-export function apply(ctx, config) {
-  ctx.logger?.info?.(`${TAG} 骨架插件已加载（v${VERSION}）`);
+export function apply(ctx, _config) {
+  ctx.logger?.info?.(`${TAG} 插件已加载（v${VERSION}）`);
+
+  const runtime = createRuntime({ ctx, logger: ctx.logger });
 
   registerProbeTool(ctx);
+  registerTools(ctx, runtime);
 
   // 刻意不 await：装配不应该因为 skills 这一半慢或失败而卡住。
   mountBundledSkills(ctx).catch((err) => {

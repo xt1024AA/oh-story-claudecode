@@ -27,13 +27,33 @@ const REPO_ROOT = path.resolve(PACKAGE_ROOT, "..", "..");
 const SRC_DIR = path.join(REPO_ROOT, "skills");
 const DST_DIR = path.join(PACKAGE_ROOT, "skills");
 
+/**
+ * 副本侧豁免清单（相对 skills/ 根的路径）——与 check-parity.mjs 同一份口径。
+ *
+ * 这两个 package.json 是模块类型标记（wayfinder #8）：本子包根 package.json
+ * 声明 `"type": "module"`，会把 vendored 的 CJS 脚本（require）误当 ESM 解析；
+ * 在脚本所在 skill 目录放 `{"type":"commonjs"}` 标记，Node 就近解析为 CommonJS。
+ * 源侧没有这份文件，所以同步时**不得删除**它们。
+ */
+const EXEMPT_DST_FILES = new Set([
+  "story-deslop/package.json",
+  "story-long-write/package.json",
+]);
+
 const checkOnly = process.argv.includes("--check");
 
-/** 递归收集目录下所有文件（相对路径清单，字典序，跨平台稳定）。 */
+/**
+ * 递归收集目录下所有文件（相对路径清单，字典序，跨平台稳定）。
+ *
+ * 刻意跳过 `__pycache__/`：.pyc 是 Python 运行时生成的构建产物，不是源，
+ * 也不该参与同步/校验（#8 实测：vendored 脚本被真实执行后会在 scripts/ 下
+ * 再生 pyc，逐字节比对它们只会制造假漂移）。
+ */
 function collectFiles(dir, base = "") {
   if (!existsSync(dir)) return [];
   const out = [];
   for (const entry of readdirSync(dir).sort()) {
+    if (entry === "__pycache__") continue;
     const rel = base ? `${base}/${entry}` : entry;
     const full = path.join(dir, entry);
     if (statSync(full).isDirectory()) out.push(...collectFiles(full, rel));
@@ -66,7 +86,7 @@ const dstFiles = collectFiles(DST_DIR);
 const srcSet = new Set(srcFiles);
 const dstSet = new Set(dstFiles);
 const onlySrc = srcFiles.filter((f) => !dstSet.has(f));
-const onlyDst = dstFiles.filter((f) => !srcSet.has(f));
+const onlyDst = dstFiles.filter((f) => !srcSet.has(f) && !EXEMPT_DST_FILES.has(f));
 const changed = srcFiles.filter(
   (f) => dstSet.has(f) && !filesEqual(path.join(SRC_DIR, f), path.join(DST_DIR, f)),
 );

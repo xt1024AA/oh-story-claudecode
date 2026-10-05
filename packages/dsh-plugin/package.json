@@ -1,13 +1,14 @@
 {
   "name": "dsh-oh-story-claudecode",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
-  "description": "网文写作 DSH 插件：13 个 Oh Story 写作 skill 随包交付（story-setup / long-write / short-write / deslop / review / cover 等），确定性脚本将陆续暴露为 DSH 工具。",
+  "description": "网文写作 DSH 插件：13 个 Oh Story 写作 skill 随包交付（story-setup / long-write / short-write / deslop / review / cover 等），写作闭环核心的确定性脚本（storyctl chapter check/commit、去AI味检测、标点归一、字数口径）已封装为 oh_story_* 工具。",
   "main": "./lib/index.js",
   "scripts": {
     "test:parity": "node scripts/check-parity.mjs",
-    "sync:skills": "node scripts/sync-skills.mjs"
+    "sync:skills": "node scripts/sync-skills.mjs",
+    "test:tools": "node scripts/test-tools.mjs"
   },
   "exports": {
     ".": "./lib/index.js",

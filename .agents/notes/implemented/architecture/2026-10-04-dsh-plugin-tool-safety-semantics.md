@@ -1,6 +1,6 @@
 # DSH 插件破坏性工具的安全语义与确认策略
 
-对应 wayfinder 地图 #1「DSH 插件化：把 oh-story-claudecode 装进 DeepSeek Harness」下的决策票 #12「定破坏性工具的安全语义与确认策略」。决策由作者 2026-10-04 裁决（Q1/Q2/Q3 均选 A）。
+对应 wayfinder 地图 #1「DSH 插件化：把 oh-story-claudecode 装进 DeepSeek Harness」下的决策票 #12「定破坏性工具的安全语义与确认策略」。决策由作者 2026-10-04 裁决（Q1/Q2/Q3 均选 A）；实现随 #8「封装确定性工具」落地（commit `…`，见 `.agents/notes/implemented/architecture/2026-10-05-dsh-plugin-tool-surface.md`）。
 
 ## Problem
 
@@ -17,13 +17,15 @@
 
 ## Decision
 
-1. **默认只读**：每个破坏性动作要求**显式开关**（`--fix-punctuation`、独立的 `commit` 工具名等）。模型必须先跑只读检查（`--check` / `chapter check` 默认形态），再在结果里显式要求破坏性动作。
-2. **人工审批**：破坏性动作（尤其 `chapter commit`）走 DSH 的 `@deepseek-ai/dsh-user-approval` 审批，作者确认后才执行。底线：**作者书稿不可静默篡改**。
-3. **幂等与环境一并定死**：
-   - 不幂等失败（`chapter commit` 重跑必失败）→ 工具返回**可读报错**并给出**正确下一步**（重跑 `tracking_commit.py draft` 再提交）。
-   - 工具启动做一次 **Python 探测**（`python3 → python → py`，跳过 Microsoft Store 占位 exit 9009），把探测结果报给模型。
+1. **默认只读**：每个破坏性动作要求**显式开关**（`fixPunctuation: true` / `fix: true`、独立的 `oh_story_chapter_commit` 工具名）。模型必须先跑只读检查（`chapter check` 默认形态 / 检测器 `--check`），再在结果里显式要求破坏性动作。
+2. **人工审批**：破坏性动作（`oh_story_chapter_commit`、`fixPunctuation`、`punctuation fix`）走宿主审批服务（`ctx.get("approval")` 的 `request()`，服务名 `approval`），作者确认后才执行；`rejected` 是终局，`confirm: true` 也不许绕过。底线：**作者书稿不可静默篡改**。
+3. **审批通道不可用的回退**（本笔记原「代价与风险」里的兜底，已落地）：`unavailable` / 服务缺失 / 调用抛错时，显式 `confirm: true` 放行，并在信封的 `approval` 里如实标注 `via: "explicit-confirm"`（回退通道，非人工审批）。
+4. **幂等与环境一并定死**（已落地）：
+   - 不幂等失败（`chapter commit` 重跑必失败）→ 工具返回 `TRANSACTION_STALE` + 可读报错 + 正确下一步（重新 `tracking_commit.py draft --project … --chapter N` 再提交）。
+   - 工具启动做 **Python 探测**（`python3 → python → py -3`，`-c ""` 实跑判定，跳过 Microsoft Store 占位 exit 9009），探测结果随信封 `env` 字段报给模型；Node 同型探测（PATH 里的 node，桌面宿主可回退宿主内置 Node）。
+   - 并发写保护：破坏性标点归一整体持**进程内互斥**（`punctuation-fix-global`）；跨进程并发原脚本无锁，局限写进 notes，不硬造。
 
-本笔记落 `proposed/`：决策已定、实现未落地；#8「封装确定性工具」实施完成后随代码转 `implemented/`。
+实现位置：`packages/dsh-plugin/lib/runtime/approval.js`（审批闸门）、`lib/runtime/interpreter.js`（探测链）、`lib/runtime/proc.js`（子进程执行器）、`lib/runtime/file-guard.js`（sha256 / 互斥 / 工作目录快照）、`lib/tools/*`（各工具）。
 
 ## Alternatives considered
 
@@ -49,13 +51,14 @@
 
 ## Consequences
 
-收益：
+收益（#8 实测均成立）：
 
-- 守住「作者书稿不可静默篡改」底线 —— 破坏性动作全部显式化 + 人工审批。
-- 模型获得确定性护栏：只读检查先行、破坏性显式化、commit 有审批闸门、失败有正确下一步。
-- 每个破坏性能力的三件套（默认行为 / 触发条件 / 用户可见提示）直接可被 #8 照抄成实现约束。
+- 守住「作者书稿不可静默篡改」底线 —— 破坏性动作全部显式化 + 人工审批（测试 A18/B9 覆盖：被拒时追踪状态一字未动）。
+- 模型获得确定性护栏：只读检查先行、破坏性显式化、commit 有审批闸门、失败有正确下一步（`TRANSACTION_STALE` 引导重新 draft，测试 A17）。
+- 每个破坏性能力的三件套（默认行为 / 触发条件 / 用户可见提示）已在实现中固化，工具描述直接写明。
 
 代价与风险：
 
 - 破坏性动作多一步人工确认，交互略重（换取书稿安全，可接受）。
-- #8 实现时需接入 `dsh-user-approval`；若宿主侧该服务不可用，回退「显式参数 + 结果确认」并记录 —— 语义不变，实现层兜底。
+- 审批通道不可用时的 `confirm: true` 回退在返回里如实标注，模型与作者都能看到这次不是人工审批；仍存在「作者显式确认被模型拿来擅自执行」的残余风险，靠工具描述与回退标注缓解。
+- 跨进程并发写没有锁（原脚本无锁，不重写逻辑），文档与 notes 已写明局限。
