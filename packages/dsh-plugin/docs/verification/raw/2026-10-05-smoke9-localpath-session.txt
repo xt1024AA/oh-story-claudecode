@@ -1,4 +1,4 @@
-﻿**步骤 1 — oh_story_probe（echo=smoke9）**
+**步骤 1 — oh_story_probe（echo=smoke9）**
 ```
 插件 dsh-oh-story-claudecode v0.2.1 已装载。
 随包 skills 目录：D:\DS\插件\oh-story-claudecode\packages\dsh-plugin\skills\（就位）

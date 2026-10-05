@@ -1,4 +1,4 @@
-﻿===== .smoke\02-add-localpath.txt =====
+===== .smoke\02-add-localpath.txt =====
 
 dependencies:
 + dsh-oh-story-claudecode link:D:/DS/插件/oh-story-claudecode/packages/dsh-plugin

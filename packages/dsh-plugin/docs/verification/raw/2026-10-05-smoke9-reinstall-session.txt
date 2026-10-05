@@ -1,4 +1,4 @@
-﻿**第 1 步 — oh_story_probe（echo=smoke9-reinstall）返回原文：**
+**第 1 步 — oh_story_probe（echo=smoke9-reinstall）返回原文：**
 
 ```
 插件 dsh-oh-story-claudecode v0.2.1 已装载。
