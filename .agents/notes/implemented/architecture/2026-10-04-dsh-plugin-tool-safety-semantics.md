@@ -1,6 +1,6 @@
 # DSH 插件破坏性工具的安全语义与确认策略
 
-对应 wayfinder 地图 #1「DSH 插件化：把 oh-story-claudecode 装进 DeepSeek Harness」下的决策票 #12「定破坏性工具的安全语义与确认策略」。决策由作者 2026-10-04 裁决（Q1/Q2/Q3 均选 A）；实现随 #8「封装确定性工具」落地（commit `…`，见 `.agents/notes/implemented/architecture/2026-10-05-dsh-plugin-tool-surface.md`）。
+对应 wayfinder 地图 #1「DSH 插件化：把 oh-story-claudecode 装进 DeepSeek Harness」下的决策票 #12「定破坏性工具的安全语义与确认策略」。决策由作者 2026-10-04 裁决（Q1/Q2/Q3 均选 A）；实现随 #8「封装确定性工具」落地（commit `cadcee5`，见 `.agents/notes/implemented/architecture/2026-10-05-dsh-plugin-tool-surface.md`）。
 
 ## Problem
 
