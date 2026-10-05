@@ -17,7 +17,7 @@
 
 ## 结论（一句话）
 
-**装（本地路径 / tgz 两种 spec）→ 全新 DSH 进程的新会话发现并加载随包 skill → 8 个 `oh_story_*` 工具在工具面 → 调工具拿到真实业务结果**，全链可复现；边界（重复安装 / 卸载后重装 / 其它插件不受影响）逐项补测。
+**装（本地路径 / tgz 两种 spec）→ 全新 DSH 进程的新会话发现并加载随包 skill → 8 个 `oh_story_*` 工具在工具面 → 调工具拿到真实业务结果**，全链可复现；边界（重复安装 / 卸载后重装 / 其它插件不受影响）逐项补测；**桌面 profile 重启后活体确认同样「此刻在册 8 个」**（见文末）。
 
 ## 为什么验收跑在全新 profile 而不是桌面 profile 的活体会话
 
@@ -33,6 +33,8 @@
 ```
 
 即：安装形态与 skills 通路在桌面 profile 上早已成立，缺的只是「重启后加载 0.2.1」。
+
+> 2026-10-05 作者重启 DSH 后，**桌面 profile 活体也已确认通过**（见文末「桌面 profile 活体确认」）。本节保留，作为当时的取舍记录。
 
 ## 验收 1：安装（两种 spec 各一次）
 
@@ -222,8 +224,38 @@ cmd /c rmdir "C:\Users\49178\.dsh\profiles\smoke9\node_modules\dsh-oh-story-clau
 & $dsh plugin --profile desktop list --depth 0                                             # 其它插件（只读）
 ```
 
-## 未完成 / 下一步
+## 桌面 profile 活体确认（作者重启 DSH 后，2026-10-05）
 
-- **桌面 profile 的活体确认**：DSH 不热换已加载模块，重启后在新会话调一次 `oh_story_probe`，预期看到「装配 8 个 / register 成功 8 个 / 此刻在册 8 个」（修前只有 1 个）。
+重启后**在本会话（桌面 profile 的活体会话）**直接调工具，全部逐字如下。
+
+`oh_story_probe`（`echo=desktop-restart-confirm`）—— 修前这里只有 1 个在册：
+
+```
+插件 dsh-oh-story-claudecode v0.2.1 已装载。
+随包 skills 目录：D:\DS\插件\oh-story-claudecode\packages\dsh-plugin\skills\（就位）
+随包 skills 挂载：成功（提供方 oh-story-bundled）
+细节：已登记提供方 oh-story-bundled，根目录 …（rank 600）
+工具面：装配 8 个 / register 成功 8 个 / 此刻在册 8 个
+回显：desktop-restart-confirm
+```
+
+`oh_story_env`（`recheck=true`）：
+
+```
+OK oh_story_env       退出码：0       落盘副作用：无
+python.ok = true   bin=python   version=Python 3.14.7
+  tried: python3 → ok:false（验证命令退出码 9009，Store 占位被正确跳过）；python → ok:true
+node.ok   = true   bin=node     version=v24.20.0
+scripts: storyctl / wordcountCore / aiPatterns / degeneration / punctuation / styleWhitelist —— exists 全部 true
+```
+
+`oh_story_chapter_check`（demo 长篇 第 21 章）：`OK …（status: ready）`、退出码 0、**落盘副作用：无**、`actual=2068 / target=2300`、`quality.status=pass`、`available_actions=["commit"]`。
+
+`oh_story_ai_patterns_check`（`改前.md`）：`OK …（status: findings）`、退出码 1（业务判定）、`计数：total=8，blocking=7，advisory=1`、**落盘副作用：无**。
+
+至此 #9 的三条验收标准与边界补测全部有据，**桌面 profile 活体也已在册 8 个工具**。
+
+## 剩余事项（非本票验收项）
+
 - 本留档的验收 profile `smoke9` / `smoke9tgz` 是临时产物，确认完可删（`dsh plugin --profile <名> remove dsh-oh-story-claudecode` + 删 profile 目录）。
 - `chapter accept-current-length` 仍未封装（#8 范围外，此处未测）。
