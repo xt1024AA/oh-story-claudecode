@@ -5,10 +5,12 @@
   "type": "module",
   "description": "网文写作 DSH 插件：13 个 Oh Story 写作 skill 随包交付（story-setup / long-write / short-write / deslop / review / cover 等），写作闭环核心的确定性脚本（storyctl chapter check/commit、去AI味检测、标点归一、字数口径）已封装为 oh_story_* 工具。",
   "main": "./lib/index.js",
+  "types": "./lib/index.d.ts",
   "scripts": {
     "test:parity": "node scripts/check-parity.mjs",
     "sync:skills": "node scripts/sync-skills.mjs",
-    "test:tools": "node scripts/test-tools.mjs"
+    "test:tools": "node scripts/test-tools.mjs",
+    "test:types": "npx --yes -p typescript@5 tsc --noEmit --strict --target es2022 --module nodenext --moduleResolution nodenext examples/types/consumer.ts"
   },
   "exports": {
     ".": "./lib/index.js",
