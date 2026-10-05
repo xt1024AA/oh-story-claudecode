@@ -1,0 +1,246 @@
+﻿**步骤 1 — oh_story_probe（echo=smoke9）**
+```
+插件 dsh-oh-story-claudecode v0.2.1 已装载。
+随包 skills 目录：D:\DS\插件\oh-story-claudecode\packages\dsh-plugin\skills\（就位）
+随包 skills 挂载：成功（提供方 oh-story-bundled）
+细节：已登记提供方 oh-story-bundled，根目录 D:\DS\插件\oh-story-claudecode\packages\dsh-plugin\skills\（rank 600）
+工具面：装配 8 个 / register 成功 8 个 / 此刻在册 8 个
+回显：smoke9
+写作工具（oh_story_* 系列）已随 #8 落地；先跑 oh_story_env 看环境。
+```
+
+**步骤 2 — oh_story_env（recheck=true）**
+```
+OK oh_story_env
+退出码：0
+落盘副作用：无
+业务结果（JSON）：
+{
+  "skillsRoot": "D:\\DS\\插件\\oh-story-claudecode\\packages\\dsh-plugin\\skills\\",
+  "python": {
+    "ok": true,
+    "bin": "python",
+    "prefixArgs": [],
+    "version": "Python 3.14.7",
+    "label": "python",
+    "source": "probe",
+    "tried": [
+      {
+        "candidate": "python3",
+        "ok": false,
+        "detail": "验证命令退出码 9009"
+      },
+      {
+        "candidate": "python",
+        "ok": true,
+        "detail": "验证命令 `-c \"\"` 退出码 0"
+      }
+    ],
+    "note": ""
+  },
+  "node": {
+    "ok": true,
+    "bin": "node",
+    "prefixArgs": [],
+    "version": "v24.20.0",
+    "label": "node",
+    "source": "probe",
+    "tried": [
+      {
+        "candidate": "node",
+        "ok": true,
+        "detail": "验证命令 `-c \"\"` 退出码 0"
+      }
+    ],
+    "note": ""
+  },
+  "scripts": [
+    {
+      "key": "storyctl",
+      "path": "D:\\DS\\插件\\oh-story-claudecode\\packages\\dsh-plugin\\skills\\story-long-write\\scripts\\storyctl.py",
+      "exists": true
+    },
+    {
+      "key": "wordcountCore",
+      "path": "D:\\DS\\插件\\oh-story-claudecode\\packages\\dsh-plugin\\skills\\story-long-write\\scripts\\wordcount_core.py",
+      "exists": true
+    },
+    {
+      "key": "aiPatterns",
+      "path": "D:\\DS\\插件\\oh-story-claudecode\\packages\\dsh-plugin\\skills\\story-deslop\\scripts\\check-ai-patterns.js",
+      "exists": true
+    },
+    {
+      "key": "degeneration",
+      "path": "D:\\DS\\插件\\oh-story-claudecode\\packages\\dsh-plugin\\skills\\story-deslop\\scripts\\check-degeneration.js",
+      "exists": true
+    },
+    {
+      "key": "punctuation",
+      "path": "D:\\DS\\插件\\oh-story-claudecode\\packages\\dsh-plugin\\skills\\story-deslop\\scripts\\normalize-punctuation.js",
+      "exists": true
+    },
+    {
+      "key": "styleWhitelist",
+      "path": "D:\\DS\\插件\\oh-story-claudecode\\packages\\dsh-plugin\\skills\\story-deslop\\scripts\\style-whitelist.js",
+      "exists": true
+    }
+  ]
+}
+```
+
+**步骤 3 — oh_story_chapter_check（chapter=21）**
+```
+OK oh_story_chapter_check（status: ready）
+等价命令：python D:\DS\插件\oh-story-claudecode\packages\dsh-plugin\skills\story-long-write\scripts\storyctl.py chapter check --project D:\DS\插件\oh-story-claudecode\demo\长篇\让你管账号，你高燃混剪炸全网 --chapter 21
+退出码：0
+提示：
+  - 本章可提交（available_actions 里有 commit）。
+  - ok=true 只表示拿到了有效判定；status=blocked 是业务拦截，按 result.quality.blocking_findings 处理。
+落盘副作用：无
+业务结果（JSON）：
+{
+  "schema": "story-chapter-check/v1",
+  "status": "ready",
+  "chapter": 21,
+  "length": {
+    "schema": "story-wordcount-result/v1",
+    "metric": "visible_chars_v1",
+    "chapter": 21,
+    "case_id": null,
+    "target": 2300,
+    "actual": 2068,
+    "internal_band": {
+      "min": 2024,
+      "max": 2576,
+      "status": "pass"
+    },
+    "user_band": {
+      "min": 1955,
+      "max": 2645,
+      "status": "pass"
+    },
+    "signed_error_pct": -0.10086956521739131,
+    "absolute_error_pct": 0.10086956521739131,
+    "band_source": "default",
+    "status": "internal_pass",
+    "invalid_reason": null
+  },
+  "quality": {
+    "status": "pass",
+    "blocking_findings": [],
+    "advisories": [],
+    "semantic_advisories": 0,
+    "tool_errors": []
+  },
+  "compression": null,
+  "state_revision": 1,
+  "tracking_committed": true,
+  "next_chapter_started": false,
+  "available_actions": [
+    "commit"
+  ]
+}
+```
+
+**步骤 4 — oh_story_ai_patterns_check（改前.md）**
+```
+OK oh_story_ai_patterns_check（status: findings）
+等价命令：node D:\DS\插件\oh-story-claudecode\packages\dsh-plugin\skills\story-deslop\scripts\check-ai-patterns.js --check --json --fail-on=blocking D:\DS\插件\oh-story-claudecode\demo\去AI味对照\改前.md
+退出码：1
+计数：total=8，blocking=7，advisory=1
+提示：
+  - 发现 8 处（blocking 7 / advisory 1），failOn=blocking 门槛已触发（exit 1）。
+  - 检测器只报告不改写，本工具绝不改动文件。
+  - blocking 级句式应先改正文再复扫；advisory 级（套词密度）先通读全文判断。
+  - 扫描会读书内白名单 .deslop-whitelist（正文/ 下时取父目录的父目录，否则取文件所在目录）。
+落盘副作用：无
+业务结果（JSON）：
+{
+  "findings": [
+    {
+      "file": "D:\\DS\\插件\\oh-story-claudecode\\demo\\去AI味对照\\改前.md",
+      "line": 3,
+      "column": 1,
+      "type": "cliche-density-tic",
+      "severity": "advisory",
+      "message": "套词密度过高：高危 AI 套词 8 处（24.9/千字）；不要同义词轮换，改成角色当下可见的动作、物件、对话和具体后果。",
+      "excerpt": "仿佛 一丝 深吸一口气 缓缓 微微",
+      "review": "mechanical"
+    },
+    {
+      "file": "D:\\DS\\插件\\oh-story-claudecode\\demo\\去AI味对照\\改前.md",
+      "line": 7,
+      "column": 20,
+      "type": "em-dash",
+      "severity": "blocking",
+      "message": "破折号按功能改写：打断→动作 beat/短句，拖长音→省略或动作，插入说明→逗号/冒号；勿一律改句号。",
+      "excerpt": "么叫做命运的安排——不是巧合，而是一",
+      "review": "mechanical"
+    },
+    {
+      "file": "D:\\DS\\插件\\oh-story-claudecode\\demo\\去AI味对照\\改前.md",
+      "line": 7,
+      "column": 22,
+      "type": "not-is-comparison",
+      "severity": "blocking",
+      "message": "高频 AI 对比句式；删掉否定铺垫，直接写后项，或改成动作/细节呈现。",
+      "excerpt": "不是巧合，而是一种冥冥之中的注定",
+      "review": "mechanical"
+    },
+    {
+      "file": "D:\\DS\\插件\\oh-story-claudecode\\demo\\去AI味对照\\改前.md",
+      "line": 11,
+      "column": 1,
+      "type": "negation-parade",
+      "severity": "blocking",
+      "message": "否定排比：「没有X，没有Y…」/「没X，没有Y，只是Z」是 AI 高频排比模板；删掉否定清单，直接写现场实际有什么，最多留一个最有信息量的否定。",
+      "excerpt": "没有犹豫，没有生涩，",
+      "review": "mechanical"
+    },
+    {
+      "file": "D:\\DS\\插件\\oh-story-claudecode\\demo\\去AI味对照\\改前.md",
+      "line": 19,
+      "column": 3,
+      "type": "voice-contrast",
+      "severity": "blocking",
+      "message": "音量反差腔：「声音不大/不高…却/但…」是 AI 高频反差模板；删掉音量铺垫，直接写声音落进场子的具体效果（谁停了手、哪排安静了）。",
+      "excerpt": "声音不大，却",
+      "review": "mechanical"
+    },
+    {
+      "file": "D:\\DS\\插件\\oh-story-claudecode\\demo\\去AI味对照\\改前.md",
+      "line": 21,
+      "column": 2,
+      "type": "not-is-comparison",
+      "severity": "blocking",
+      "message": "高频 AI 对比句式；删掉否定铺垫，直接写后项，或改成动作/细节呈现。",
+      "excerpt": "不是一次简单的弹奏，而是一场蓄谋已久的惊艳亮相",
+      "review": "mechanical"
+    },
+    {
+      "file": "D:\\DS\\插件\\oh-story-claudecode\\demo\\去AI味对照\\改前.md",
+      "line": 23,
+      "column": 6,
+      "type": "trailer-ending",
+      "severity": "blocking",
+      "message": "预告式总结收尾：「没人知道/才刚刚开始/正朝着…压了过去」是 AI 章尾预告腔；结尾停在具体动作、画面或一句台词上，悬念让事件自己挂住，别替读者预告下一章。",
+      "excerpt": "才刚刚开始",
+      "review": "mechanical"
+    },
+    {
+      "file": "D:\\DS\\插件\\oh-story-claudecode\\demo\\去AI味对照\\改前.md",
+      "line": 25,
+      "column": 1,
+      "type": "trailer-ending",
+      "severity": "blocking",
+      "message": "预告式总结收尾：「没人知道/才刚刚开始/正朝着…压了过去」是 AI 章尾预告腔；结尾停在具体动作、画面或一句台词上，悬念让事件自己挂住，别替读者预告下一章。",
+      "excerpt": "没人知道",
+      "review": "mechanical"
+    }
+  ]
+}
+```
+
+SMOKE-DONE
+

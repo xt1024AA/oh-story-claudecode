@@ -42,7 +42,7 @@ packages/dsh-plugin/
 | `oh_story_ai_patterns_check` | 只读 | check-ai-patterns.js：AI 味句式扫描 |
 | `oh_story_degeneration_check` | 只读 | check-degeneration.js：退化信号扫描 |
 | `oh_story_punctuation_normalize` | 默认只读；`fix=true` 破坏性（审批） | normalize-punctuation.js：机械标点归一 |
-| `oh_story_probe` | 只读 | 装机探针（#5 保留）：插件名/版本/skills 挂载状态 |
+| `oh_story_probe` | 只读 | 装机探针（#5 保留）：插件名/版本/skills 挂载状态/**工具面此刻在册几个**（#9 起在调用时回读注册表——`register()` 成功 ≠ 工具在册） |
 
 安全语义（#12 裁决）：**默认只读**，破坏性动作必须显式开关并走**人工审批**
 （`ctx.approval.request`）；审批通道不可用时回退显式 `confirm: true`（如实标注，非人工审批）。

@@ -1,0 +1,47 @@
+﻿以下按顺序原样打印三步的工具返回原文。
+
+---
+
+## 第 1 步：`oh_story_probe`（echo=smoke9tgz）返回全文
+
+```
+插件 dsh-oh-story-claudecode v0.2.1 已装载。
+随包 skills 目录：C:\Users\49178\.dsh\profiles\smoke9tgz\node_modules\dsh-oh-story-claudecode\skills\（就位）
+随包 skills 挂载：成功（提供方 oh-story-bundled）
+细节：已登记提供方 oh-story-bundled，根目录 C:\Users\49178\.dsh\profiles\smoke9tgz\node_modules\dsh-oh-story-claudecode\skills\（rank 600）
+工具面：装配 8 个 / register 成功 8 个 / 此刻在册 8 个
+回显：smoke9tgz
+写作工具（oh_story_* 系列）已随 #8 落地；先跑 oh_story_env 看环境。
+```
+
+---
+
+## 第 2 步：`skill` 加载 `story-deslop`，返回内容前 5 行原文
+
+```
+<skill_content name="story-deslop">
+<skill_resources>
+Base directory for this skill: C:\Users\49178\.dsh\profiles\smoke9tgz\node_modules\dsh-oh-story-claudecode\skills\story-deslop
+Resolve relative paths mentioned by this skill against the base directory before using them. Load referenced resources only as needed.
+</skill_resources>
+```
+
+（该技能被本会话成功发现并加载，返回内容为完整 `skill_instructions` 块，未出现任何失败信息。）
+
+---
+
+## 第 3 步：工具面中所有 `oh_story_` 开头的工具名
+
+1. `oh_story_ai_patterns_check`
+2. `oh_story_chapter_check`
+3. `oh_story_chapter_commit`
+4. `oh_story_degeneration_check`
+5. `oh_story_env`
+6. `oh_story_probe`
+7. `oh_story_punctuation_normalize`
+8. `oh_story_wordcount`
+
+**个数：8 个**（与第 1 步返回的「此刻在册 8 个」一致）
+
+TGZ-DONE
+

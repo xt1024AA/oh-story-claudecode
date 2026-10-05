@@ -174,6 +174,59 @@ async function execRegistered(def, args, cwd) {
   return value;
 }
 
+/**
+ * 宿主 ctx 的最小**忠实**模型（#9 的教训：mock 不忠实，问题只在真机上炸）。
+ *
+ * 关键在于 `effect`：cordis 的 `ctx.effect(callback)` 会**立刻调用 callback**，并把它的
+ * **返回值**当作清理函数登记（官方 `host-plugin.md:54`：「Register every resource inside
+ * apply with ctx.effect or ctx.on and **return** its cleanup」）。
+ *
+ * 本文件旧版本的 mock 写的是 `effect() {}`——根本不调用 callback，于是「在 callback 里直接
+ * 执行清理」这种错法在本地永远测不出来：真机上 7 个写作工具注册完当刻就被自己的 disposer
+ * 注销了，而 `register()` 全程返回成功、日志还写「8/8」。这个 helper 就是那次的护栏。
+ */
+function fakeHostCtx() {
+  const registry = new Map();
+  const disposers = [];
+  const logs = [];
+  const ctx = {
+    logger: {
+      info: (m) => logs.push(`info ${m}`),
+      warn: (m) => logs.push(`warn ${m}`),
+      error: (m) => logs.push(`error ${m}`),
+    },
+    tools: {
+      register(def) {
+        if (registry.has(def.name)) throw new Error(`工具名重复：${def.name}`);
+        registry.set(def.name, def);
+        return () => registry.delete(def.name);
+      },
+      get(name) {
+        return registry.get(name);
+      },
+    },
+    get: () => undefined,
+    effect(callback) {
+      const off = callback(); // 与 cordis 一致：立刻调用，返回值才是清理函数
+      if (typeof off === "function") disposers.push(off);
+      return () => {};
+    },
+    inject() {},
+    plugin() {},
+    on() {},
+  };
+  return {
+    ctx,
+    logs,
+    /** 此刻在册的工具名（排序后）。 */
+    names: () => [...registry.keys()].sort(),
+    /** 模拟宿主卸载：逆序跑所有 effect 登记的清理函数。 */
+    disposeAll() {
+      for (const off of [...disposers].reverse()) off();
+    },
+  };
+}
+
 /** 直接工厂 + 注入环境/审批（B 组通路）。 */
 function makeDefs({ env = {}, allowHostNodeFallback = true, approval } = {}) {
   const ctxShim = {
@@ -242,21 +295,13 @@ const EXPECTED_TOOLS = [
   "oh_story_probe",
 ];
 
-test("A1: apply() 注册 8 个工具，每个都有 output.schema/render 与像样的 description", async () => {
-  const registered = [];
-  const ctx = {
-    logger: { info() {}, warn() {}, error() {} },
-    tools: { register(def) { registered.push(def); return () => {}; } },
-    get: () => undefined,
-    effect() {},
-    inject() {},
-    plugin() {},
-    on() {},
-  };
-  apply(ctx, {});
-  const names = registered.map((d) => d.name).sort();
-  assert.deepEqual(names, [...EXPECTED_TOOLS].sort(), `注册名不符：${names.join(",")}`);
-  for (const def of registered) {
+test("A1: apply() 注册 8 个工具，且注册完**仍在册**（#9 回归：注册没被自己的 disposer 注销）", async () => {
+  const host = fakeHostCtx();
+  apply(host.ctx, {});
+  const names = host.names();
+  assert.deepEqual(names, [...EXPECTED_TOOLS].sort(), `注册名不符（此刻在册）：${names.join(",")}`);
+  for (const name of names) {
+    const def = host.ctx.tools.get(name);
     assert.ok(def.output && def.output.schema, `${def.name} 缺 output.schema`);
     assert.equal(typeof def.output.render, "function", `${def.name} 缺 output.render`);
     assert.ok(def.description && def.description.length > 40, `${def.name} description 太短（${def.description?.length ?? 0} 字符）`);
@@ -264,25 +309,32 @@ test("A1: apply() 注册 8 个工具，每个都有 output.schema/render 与像�
   }
 });
 
-test("A2: oh_story_probe 返回插件事实（#5 探针保留）", async () => {
-  const registered = [];
-  const ctx = {
-    logger: { info() {}, warn() {}, error() {} },
-    tools: { register(def) { registered.push(def); return () => {}; } },
-    get: () => undefined,
-    effect() {},
-    inject() {},
-    plugin() {},
-    on() {},
-  };
-  apply(ctx, {});
-  const probe = registered.find((d) => d.name === "oh_story_probe");
+test("A1b: 卸载时 effect 登记的清理函数清空注册表（清理是「返回」而不是「当刻执行」）", async () => {
+  const host = fakeHostCtx();
+  apply(host.ctx, {});
+  assert.equal(host.names().length, 8, "apply 之后应在册 8 个");
+  host.disposeAll();
+  assert.deepEqual(host.names(), [], "卸载后注册表应清空");
+});
+
+test("A2: oh_story_probe 返回插件事实 + 工具面回读结果（#5 探针保留）", async () => {
+  const host = fakeHostCtx();
+  apply(host.ctx, {});
+  const probe = host.ctx.tools.get("oh_story_probe");
   const value = await probe.execute({ echo: "hello" }, fakeExec(process.cwd()));
   assert.equal(value.ok, true);
   assert.equal(value.plugin, "dsh-oh-story-claudecode");
-  assert.equal(value.version, "0.2.0");
+  assert.equal(value.version, "0.2.1");
   assert.equal(value.echo, "hello");
   assert.equal(value.bundledSkillDirExists, true);
+  assert.deepEqual(value.toolSurface, {
+    attempted: 8,
+    registered: 8,
+    visibleAtCall: 8,
+    registryReadable: true,
+    missing: [],
+    failures: [],
+  });
 });
 
 test("A3: oh_story_env 报出可用解释器与脚本落点", async () => {

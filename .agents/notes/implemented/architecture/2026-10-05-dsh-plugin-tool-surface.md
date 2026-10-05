@@ -1,4 +1,6 @@
-# DSH 插件写作工具面（#8 落地记录）
+# Agent Note: DSH 插件写作工具面（#8 落地记录）
+
+Status: implemented
 
 对应 wayfinder 地图 #1 下的实现票 #8「封装确定性工具：storyctl + 去AI味 + 字数」。本文记录工具面契约与实现中的三个「动手前没预见的」工程事实（模块类型标记、pyc 排除、受限沙箱的 stdio 回退），供后续票（#9 冒烟、#11 文档）照抄。
 
@@ -18,7 +20,7 @@
    | `oh_story_ai_patterns_check` | 只读 | `check-ai-patterns.js --check --json` |
    | `oh_story_degeneration_check` | 只读 | `check-degeneration.js --check --json` |
    | `oh_story_punctuation_normalize` | 默认只读；`fix` 破坏性（审批） | `normalize-punctuation.js --check / 写模式` |
-   | `oh_story_probe` | 只读 | #5 探针保留 |
+   | `oh_story_probe` | 只读 | #5 探针保留；#9 起输出带 `toolSurface`（装配/在册回读，见下） |
    代码：`packages/dsh-plugin/lib/tools/*.js`（每工具一个模块，工厂函数 `createXTool(runtime)`），装配在 `lib/index.js` 的 `apply()`。
 2. **统一信封**（`lib/runtime/envelope.js`）：`{ ok, tool, command, exitCode, status, env, counts?, result, stdout, stderr, sideEffects, approval?, error?, notes }`；`ok` = 「拿到有效业务判定」而非「判定通过」（blocked/findings 是业务结果不是故障）；`result` = 脚本 JSON 原样；`sideEffects` 如实记录落盘影响（含超长章的 `over_length_baseline.json`）。`output.schema` 与 `render` 单点定义，宿主校验不脱节。
 3. **错误词汇表**（`lib/runtime/errors.js`）：`INVALID_ARGUMENT / PATH_NOT_FOUND / SCRIPT_MISSING / PYTHON_UNAVAILABLE / NODE_UNAVAILABLE / SPAWN_FAILED / TIMEOUT / ABORTED / EXIT_UNEXPECTED / OUTPUT_UNEXPECTED / APPROVAL_REJECTED / APPROVAL_REQUIRED / INTERNAL_ERROR / TRANSACTION_STALE / TOOL_UNAVAILABLE`，每个错误三件套 `{code, message, nextStep}`。
@@ -27,7 +29,8 @@
 6. **模块类型标记**（本次踩坑的修复）：本子包根 `package.json` 声明 `"type": "module"`，会让 Node 把 vendored 的 **CommonJS** 脚本（`require('fs')`）误当 ESM 解析而崩溃。修复：在脚本所在 skill 目录放 `{"type":"commonjs"}` 标记（`skills/story-deslop/package.json`、`skills/story-long-write/package.json`），Node 就近解析为 CJS；两份标记列入 check-parity / sync-skills 的 `EXEMPT_DST_FILES`（源侧没有，同步不得删除）。
 7. **pyc 不参与 parity**：vendored 脚本被真实执行后会在 `scripts/__pycache__/` 再生 .pyc，逐字节比对它们只会制造假漂移；check-parity / sync-skills 的 `collectFiles` 统一跳过 `__pycache__`（#8 实测：465 个源文件逐字节一致）。
 8. **受限沙箱的 stdio 回退**：受限环境禁止 Node 子进程创建命名管道（`spawn` 带 pipe 得 EPERM）。`runProcess` 支持 `stdioToFiles`（stdout/stderr 走临时文件，内容与截断语义同管道），由环境变量 `OH_STORY_USE_FILE_STDIO=1` 打开（`lib/runtime/proc.js`、`lib/runtime/index.js` 的 run 包装）。测试可在任意沙箱下跑；生产（DSH 宿主）默认管道。
-9. **测试**：`packages/dsh-plugin/scripts/test-tools.mjs`（`pnpm test:tools`）34 项 —— A 组走 `apply(fakeCtx)` 注册通路 + 真实 demo 书/正文返回真实业务结果；B 组注入环境/假审批覆盖全部错误路径；信封形状对 `ENVELOPE_SCHEMA` 逐项校验。`OH_STORY_SKILLS_DIR` 覆盖用于「脚本缺失」用例。
+9. **测试**：`packages/dsh-plugin/scripts/test-tools.mjs`（`pnpm test:tools`）**35 项**（#9 增 A1b，并把 mock ctx 换成忠实模型 `fakeHostCtx()`：`effect` 立刻调用 callback 并登记返回值）—— A 组走 `apply(fakeCtx)` 注册通路 + 真实 demo 书/正文返回真实业务结果；B 组注入环境/假审批覆盖全部错误路径；信封形状对 `ENVELOPE_SCHEMA` 逐项校验。`OH_STORY_SKILLS_DIR` 覆盖用于「脚本缺失」用例。
+10. **装配期两条硬规矩（#9 真机事故补记）**：① `ctx.effect(callback)` 会**立刻调用** callback 并把**返回值**当清理函数（写成「在 callback 里直接清理」会让工具注册当刻即被注销）；② `register()` 返回成功 **≠** 工具在册，只能用 `oh_story_probe` 的 `toolSurface`（调用时回读注册表）核实。详见 `.agents/notes/implemented/bug-fix/2026-10-05-dsh-plugin-tool-registration-effect.md`，装机验收证据见 `packages/dsh-plugin/docs/verification/2026-10-05-machine-smoke.md`。
 
 ## Alternatives considered
 

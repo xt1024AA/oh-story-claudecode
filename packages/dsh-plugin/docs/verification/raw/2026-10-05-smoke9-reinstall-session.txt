@@ -1,0 +1,42 @@
+﻿**第 1 步 — oh_story_probe（echo=smoke9-reinstall）返回原文：**
+
+```
+插件 dsh-oh-story-claudecode v0.2.1 已装载。
+随包 skills 目录：D:\DS\插件\oh-story-claudecode\packages\dsh-plugin\skills\（就位）
+随包 skills 挂载：成功（提供方 oh-story-bundled）
+细节：已登记提供方 oh-story-bundled，根目录 D:\DS\插件\oh-story-claudecode\packages\dsh-plugin\skills\（rank 600）
+工具面：装配 8 个 / register 成功 8 个 / 此刻在册 8 个
+回显：smoke9-reinstall
+写作工具（oh_story_* 系列）已随 #8 落地；先跑 oh_story_env 看环境。
+```
+
+**第 2 步 — oh_story_wordcount（action=measure）返回原文：**
+
+```
+OK oh_story_wordcount（status: measured）
+等价命令：python D:\DS\插件\oh-story-claudecode\packages\dsh-plugin\skills\story-long-write\scripts\storyctl.py wordcount measure --file D:\DS\插件\oh-story-claudecode\demo\长篇\让你管账号，你高燃混剪炸全网\正文\第021章_离别怎么会开花.md
+退出码：0
+提示：
+  - 字数判定：已测出字数。
+  - 本工具只读，不会改动正文或任何项目文件。
+落盘副作用：无
+业务结果（JSON）：
+{
+  "schema": "story-wordcount-measurement/v1",
+  "metric": "visible_chars_v1",
+  "chapter": null,
+  "case_id": null,
+  "actual": 2068,
+  "status": "measured",
+  "invalid_reason": null
+}
+```
+
+四个值：
+- ok：OK（调用成功，工具头标记 `OK oh_story_wordcount`；JSON 结果中无独立 `ok` 字段）
+- status：measured
+- 退出码：0
+- actual：2068
+
+REINSTALL-DONE
+
