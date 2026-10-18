@@ -59,8 +59,12 @@ export const name = "dsh-oh-story-claudecode";
 export const inject = ["tools"];
 
 const TAG = "[dsh-oh-story-claudecode]";
-/** 与 package.json 的 version 保持一致（0.2.1 起：修 #9 真机「7 个写作工具注册即注销」）。 */
-const VERSION = "0.2.1";
+/**
+ * 与 package.json 的 version 保持一致。
+ * 0.2.1：修 #9 真机「7 个写作工具注册即注销」。
+ * 0.2.2：修「DSH 0.2.1-rc.2 下整包被兼容性闸门跳过」——peer 由精确预发布版本改成范围。
+ */
+const VERSION = "0.2.2";
 
 /** 随包 skills 根目录：与 lib/ 同级。用 import.meta.url 解析，保证插件被装到别处也能读。 */
 const BUNDLED_SKILL_DIR = fileURLToPath(new URL("../skills/", import.meta.url));

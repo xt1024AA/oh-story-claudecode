@@ -324,7 +324,12 @@ test("A2: oh_story_probe 返回插件事实 + 工具面回读结果（#5 探针�
   const value = await probe.execute({ echo: "hello" }, fakeExec(process.cwd()));
   assert.equal(value.ok, true);
   assert.equal(value.plugin, "dsh-oh-story-claudecode");
-  assert.equal(value.version, "0.2.1");
+  // 版本号从 package.json 读，不在这里写死——否则每次发版都要改测试（0.2.2 就踩过一次）。
+  // 真正的「lib 与清单是否脱节」由 scripts/check-manifest.mjs 守。
+  const manifestVersion = JSON.parse(
+    readFileSync(join(PACKAGE_DIR, "package.json"), "utf8"),
+  ).version;
+  assert.equal(value.version, manifestVersion, "探针版本应与 package.json 一致");
   assert.equal(value.echo, "hello");
   assert.equal(value.bundledSkillDirExists, true);
   assert.deepEqual(value.toolSurface, {

@@ -3,9 +3,15 @@
 把 [oh-story-claudecode](https://github.com/zenstory-ai/oh-story-claudecode) 的网文写作能力搬进
 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)（DSH）的插件。
 
-> **当前状态：v0.2.1** —— 13 个 skill 随包交付（vendored + parity 校验，#7）；写作闭环核心的确定性
+> **当前状态：v0.2.2** —— 13 个 skill 随包交付（vendored + parity 校验，#7）；写作闭环核心的确定性
 > 脚本封装为 8 个 `oh_story_*` 工具（#8）；本机装机的两种 spec、真实业务结果与边界补测见
 > [`docs/verification/2026-10-05-machine-smoke.md`](docs/verification/2026-10-05-machine-smoke.md)。
+>
+> **v0.2.2 修的是「DSH 升到 0.2.1-rc.2 后整包被跳过」**：`peerDependencies` 原先是精确的预发布版本
+> `0.2.0-rc.2`，而宿主用 `semver.satisfies(runtime, range, { includePrerelease: true })` 判兼容 ——
+> 精确版本只匹配它自己，于是新运行时下**整个组合包被静默跳过**（只打一行 stderr，profile 其余部分照常启动，
+> 插件就像没装过一样）。现改成范围 `^0.2.0-rc.2`，并新增 `scripts/check-manifest.mjs` 把这类事故挡在提交前。
+> 取证与机制见 [`docs/verification/2026-10-18-dsh-0.2.1-compat.md`](docs/verification/2026-10-18-dsh-0.2.1-compat.md)。
 >
 > **想直接跑一遍**：[`examples/minimal/README.md`](examples/minimal/README.md)（从零到一条真实业务结果，
 > 每条命令都在本机实跑过）。
@@ -23,12 +29,16 @@
 packages/dsh-plugin/
 ├── package.json          # 清单：dsh.bundle.patch、peerDependencies、engines、types、files
 ├── cordis.patch.yml      # 装配层：往 profile 组合树里 insert 本插件一行
+├── icon.svg              # 设置页/插件管理器的图标（宿主 readPluginMeta 读 ./icon）
+├── locale/               # 显示元数据：en.json（宿主解析锚点）+ zh.json，各含 meta.title/description
 ├── lib/
 │   ├── index.js          # cordis 插件入口：apply(ctx) —— 注册工具 + 挂载随包 skills
 │   ├── index.d.ts        # 宿主装配面的类型声明（name / inject / apply / HostContext / Envelope）
 │   ├── runtime/          # 内部实现：解释器探测、子进程、审批闸门、信封、文件防护
 │   └── tools/            # 每个工具一个模块（oh_story_* 系列）
 ├── scripts/
+│   ├── check-manifest.mjs       # 清单与 DSH 兼容性自检（0.2.2 新增，见「为什么要有清单自检」）
+│   ├── test-manifest-guard.mjs  # 上面那个守卫的变异回归（14 项）
 │   ├── check-parity.mjs  # skills 副本与根 skills 的逐字节校验（#7）
 │   ├── sync-skills.mjs   # 同步 vendored skills（#7）
 │   └── test-tools.mjs    # 工具面测试：真实业务结果 + 全部错误路径（#8 / #9）
@@ -38,11 +48,39 @@ packages/dsh-plugin/
 └── README.md
 ```
 
+## 为什么要有清单自检（`scripts/check-manifest.mjs`）
+
+**0.2.1 在 DSH `0.2.1-rc.2` 上根本没装载，而当时的 34 项工具测试、parity、类型检查、`npm pack` 全绿** ——
+因为没有任何一步读过「宿主怎么判兼容」。宿主 `dsh-app-boot` 的判定规则是：
+
+1. `package.json` 里**有 `engines.dsh` 就只看它**，`peerDependencies` 全部被忽略；
+2. 否则逐个校验 `@deepseek-ai/dsh` 与 `@deepseek-ai/dsh-*` 的 peer 范围；
+3. 匹配用 `semver.satisfies(runtime, range, { includePrerelease: true })`；
+4. 判不兼容时：组合包**被跳过**（进 `skippedBundles`，stderr 一行 `dsh: skipping profile bundle "..."`），
+   profile 其余部分组成；普通行则变成游离的 `disabled: true` 行。
+
+于是「精确预发布版本」（如 `0.2.0-rc.2`）是一颗定时炸弹：它只匹配它自己，DSH 一升小版本整包就消失。
+`scripts/check-manifest.mjs` 因此守四件事（`pnpm test:manifest`）：
+
+| 守什么 | 具体规则 |
+| --- | --- |
+| 兼容性 | 拒绝精确版本号的 peer；peer 必须是范围，且必须覆盖 `SUPPORTED_RUNTIMES` 里的每个基线运行时；**拒绝 `engines.dsh`**（它会让 peer 保护失效） |
+| 一致性 | `lib/index.js` 的 `VERSION`、`cordis.patch.yml` 的行 id/name、包名三处相同；版本号必须是精确 SemVer |
+| 可装载的形状 | `dsh.bundle.patch` 指向存在文件；`exports`/`files` 覆盖 `locale` 与 `icon`；icon ≤256 KiB 且格式被接受 |
+| 随包 skills | 每个 `skills/<name>/SKILL.md` 的 frontmatter 满足宿主硬要求（kebab-case `name` + 非空 `description`，且 `name` 与目录名一致） |
+
+守卫的解析器**刻意 fail-closed**：语法超出它支持的子集（`^` / `~` / `>=` / `<` / `||` / `X.Y.x`）就直接报错，
+不做「看不懂就放行」。`scripts/test-manifest-guard.mjs`（`pnpm test:manifest-guard`，14 项）把 0.2.1 事故
+与其它的复现形态逐个造出来，断言守卫**确实变红**，再还原复绿——一个只会打印 ok 的守卫等于没有守卫。
+
+**升级 DSH 后请先跑 `pnpm test:manifest`**：它会告诉你当前 peer 范围是否覆盖新运行时。不覆盖就改范围
+（别加版本豁免：豁免只对精确 `name@version` 生效，插件升级与 DSH 升级都不继承）。
+
 ## 环境要求与依赖
 
 | 项 | 要求 | 说明 |
 | --- | --- | --- |
-| DSH | `0.2.0-rc.2` 系列（实测版本） | 唯一被强制的依赖是 `peerDependencies` 里的 `@deepseek-ai/dsh-skill-filesystem`（宿主提供，本包不装） |
+| DSH | `^0.2.0-rc.2`（`0.2.0-rc.2` 与 `0.2.1-rc.2` 实测） | 唯一被强制的依赖是 `peerDependencies` 里的 `@deepseek-ai/dsh-skill-filesystem`（宿主提供，本包不装）；范围必须覆盖你实际在用的运行时，详见上一节 |
 | Node | ≥ 24（`engines.node`） | 三个检测器是 Node 脚本；PATH 里没有 `node` 时回退**宿主内置 Node**（Electron-as-node） |
 | Python | 3.x | 探测链 `python3 → python → py -3`，每个候选**实跑** `-c ""` 验证；**自动跳过 Microsoft Store 占位程序**（本机 `python3` exit 9009，落到 `python`） |
 | OS | 实测 Windows；脚本本身跨平台 | `dsh plugin` 是 pnpm 转发（随 DSH 自带） |
@@ -99,21 +137,22 @@ Done in 365ms using pnpm v11.7.0
 ```powershell
 cd <本目录>
 npm pack --pack-destination <输出目录>
-dsh plugin --profile <profile> add "<输出目录>\dsh-oh-story-claudecode-0.2.1.tgz"
+dsh plugin --profile <profile> add "<输出目录>\dsh-oh-story-claudecode-0.2.2.tgz"
 ```
 
-实测输出（`npm pack`）：
+实测输出（`npm pack`，2026-10-18 v0.2.2）：
 
 ```
-npm notice filename: dsh-oh-story-claudecode-0.2.1.tgz
+npm notice filename: dsh-oh-story-claudecode-0.2.2.tgz
 npm notice package size: 1.8 MB
-npm notice unpacked size: 5.9 MB
+npm notice unpacked size: 6.0 MB
 npm notice shasum: <每次 pack 都不同：README.md 自己也在包里>
-npm notice total files: 493
+npm notice total files: 498
 ```
 
 > `shasum` 没法写死在文档里——`README.md` 本身就在包里，任何一次文档改动都会改变它。要校验完整性，
 > 就用**同一次** `npm pack` 打印的那个值。（`examples/minimal/README.md` 不在包里，所以那里带具体值示例。）
+> 包内已确认含 `locale/en.json`、`locale/zh.json`、`icon.svg`（`tar -tzf` 实测）。
 
 > ⚠️ 路径必须**绝对**，DSH 拒绝相对路径。装完 DSH 会把本包写进 profile 的 `dependencies` 与
 > `dsh.profile.bundles`，并重新组合（`dsh <profile> --dump-config` 里能看到 `# == dsh-oh-story-claudecode` 那一行）。
@@ -122,7 +161,17 @@ npm notice total files: 493
 
 ### 安装后怎么确认
 
-新开会话（或直接 `dsh <profile> "任务"`），先调 `oh_story_probe`，期望：
+**先看组合包有没有被兼容性闸门跳过**（v0.2.2 新增的第一步，0.2.1 就是在这一步静默失败的）：
+
+```powershell
+dsh <profile> --dump-config | Select-String "skipping profile bundle"
+```
+
+**必须没有任何输出**。一旦出现 `skipping profile bundle "dsh-oh-story-claudecode"`，说明 peer 范围没覆盖
+当前 DSH 运行时——插件**根本没装载**，此时后面所有「工具面 8 个」的检查都会返回「工具不存在」。
+修法：跑 `pnpm test:manifest` 看它点名哪个运行时，然后改 `peerDependencies` 的范围（别加版本豁免）。
+
+确认没被跳过后，新开会话（或直接 `dsh <profile> "任务"`），调 `oh_story_probe`，期望：
 
 ```
 工具面：装配 8 个 / register 成功 8 个 / 此刻在册 8 个
@@ -166,12 +215,15 @@ dsh <profile> '调 oh_story_chapter_check，参数 project="<书目录>"、chapt
 
 | 命令 | 覆盖 | 最近一次实测 |
 | --- | --- | --- |
+| `node scripts/check-manifest.mjs` | **清单与 DSH 兼容性**（v0.2.2 新增）：peer 是范围且覆盖 `SUPPORTED_RUNTIMES` 每个基线、拒绝 `engines.dsh`、`VERSION`/包名/patch 行 id 三处一致、`exports`+`files` 覆盖 locale 与 icon、icon ≤256 KiB、13 个 skill 的 frontmatter 满足宿主硬要求 | `[check-manifest] 全部通过。` |
+| `node scripts/test-manifest-guard.mjs` | 上面那个守卫的**变异回归**：把 0.2.1 事故等 13 种复现形态逐个造出来断言变红，再还原复绿（fail-closed 语法、包目录不存在也判红） | `清单守卫回归：14 项，0 项失败。` |
 | `node scripts/test-tools.mjs` | 35 项：A 组装配通路 + 真实业务结果（demo 书/正文）；B 组全部错误路径（Python/Node 不可用、脚本缺失、审批拒绝/不可用、事务过期…）；信封形状逐项校验 | `工具面测试：35 项，0 项失败。` |
 | `node scripts/check-parity.mjs` | `skills/` 副本与仓库根 `skills/` 逐字节一致（绿 / 人为注入即红 / 还原复绿） | `[check-parity] 一致：465 个文件逐字节相同。` |
 | `npx --yes -p typescript@5 tsc --noEmit --strict --target es2022 --module nodenext --moduleResolution nodenext examples/types/consumer.ts` | `lib/index.d.ts` 的类型声明可用（编译期契约检查，不运行） | 退出码 0（反例见「类型声明」一节） |
 | `node scripts/sync-skills.mjs` | 从根 `skills/` 同步 vendored 副本（`--check` 只读） | — |
 
-（`package.json` 里有 `test:tools` / `test:parity` / `test:types` 三个 npm script 别名，前提是 PATH 里有 `pnpm` 或 `npm`。）
+（`package.json` 里有 `test:manifest` / `test:manifest-guard` / `test:tools` / `test:parity` / `test:types` 的
+npm script 别名，`npm test` 一次跑前四项；前提是 PATH 里有 `pnpm` 或 `npm`。）
 
 仓库级守卫（根目录，`bash` + `python` 环境见仓库 `AGENTS.md`）：`scripts/static-check.sh`、
 `scripts/check-doc-budget.sh`、`scripts/check-shared-files.sh`、`scripts/check-current-skill-contracts.sh`、
@@ -209,24 +261,37 @@ npx --yes -p typescript@5 tsc --noEmit --strict --target es2022 `
 
 - 只在本 fork 推进，不回提上游；不发布 npm，只支持本地路径 / tgz 安装。
 - 不做 client 侧 UI（不声明 `dsh.client`）。
-- `engines.dsh` 这类字段不被 DSH 强制校验；真正被强制的是 `peerDependencies` 里 `@deepseek-ai/dsh*` 的范围。
+- **兼容性只由 `peerDependencies` 里 `@deepseek-ai/dsh*` 的范围决定**；刻意**不写 `engines.dsh`**——
+  宿主一旦看到 `engines.dsh` 就完全忽略 peer，这层保护会失效。`engines.node` 纯粹是声明，不被校验。
+- 兼容闸门只判「能不能装」，**判不出 API 层面还对不对**：宿主升版后即使范围覆盖了，
+  `ctx.tools.register` / `ctx.approval.request` / `skill-filesystem` 的选项仍可能变。升级后请跑
+  `test:manifest` + `test:tools`，并在真机上用 `oh_story_probe` 确认「此刻在册 8 个」。
+- 显示元数据（`locale/*.json` + `icon.svg`）**不是装载条件**：缺了宿主会回退到包名/默认图。
+  本包补它只是为了设置页可读；`test:manifest` 会检查它的形状与 256 KiB 上限，因为越界会多出一条 metadata 诊断。
 - skills 副本**不纳入**仓库根的热路径文档守卫；漂移由 `test:parity` / CI 负责。
 - 破坏性工具的并发保护是**进程内**的（原脚本无锁，跨进程并发不在本插件范围内解决）。
 - `chapter accept-current-length` 未封装（#8 范围外）。
 
 **假设（显式标注）**
 
-- **进 tgz 的只有** `lib/`（含 `index.d.ts`）、`skills/`、`cordis.patch.yml`、`README.md`；
+- **进 tgz 的只有** `lib/`（含 `index.d.ts`）、`skills/`、`locale/`、`icon.svg`、`cordis.patch.yml`、`README.md`；
   `examples/` 与 `docs/` 只在本仓提供（它们依赖仓库里的 `demo/` 样书与相对链接，进了 tgz 也用不上）。
 - 本 README 里指向 `../../docs/...`、`../../.agents/notes/...` 的链接**只在仓库内有效**。
 - 文档里的版本号、文件数、shasum 都是**实测值**，随代码变化；换代码后请重新 `npm pack` 并更新。
-- 安装/卸载、工具调用、边界行为的实测环境：DSH `0.2.0-rc.2` · Node `v24.20.0` · Python `3.14.7`（Windows）。
+- 安装/卸载、工具调用、边界行为的实测环境：DSH `0.2.0-rc.2`（#9/#11 装机）与 `0.2.1-rc.2`（v0.2.2 兼容性取证）·
+  Node `v24.20.0` / `v24.21.0` · Python `3.14.7`（Windows）。
 
 ## 依据
 
 规范结论来自本机实测，见仓库内 [`docs/research/dsh-plugin-spec.md`](../../docs/research/dsh-plugin-spec.md)
-与 [`docs/research/story-script-contracts.md`](../../docs/research/story-script-contracts.md)。
+（0.2.0-rc.2 基线）、[`docs/research/dsh-0.2.1-plugin-contract-delta.md`](../../docs/research/dsh-0.2.1-plugin-contract-delta.md)
+（0.2.1-rc.2 变更）与 [`docs/research/story-script-contracts.md`](../../docs/research/story-script-contracts.md)。
+
+> ⚠️ `dsh-plugin-spec.md` 里「`engines.dsh` 不被强制、peer 才是闸门」这半句在 0.2.1 已反转：
+> 现在是「有 `engines.dsh` 就只看它，peer 全被忽略」。两份文档冲突时以 **delta 那份 + 宿主代码**为准。
+
 结构决策见 [`.agents/notes/implemented/architecture/2026-10-03-dsh-plugin-package-layout.md`](../../.agents/notes/implemented/architecture/2026-10-03-dsh-plugin-package-layout.md)；
 工具安全语义见 [`.agents/notes/implemented/architecture/2026-10-04-dsh-plugin-tool-safety-semantics.md`](../../.agents/notes/implemented/architecture/2026-10-04-dsh-plugin-tool-safety-semantics.md)；
 工具面契约见 [`.agents/notes/implemented/architecture/2026-10-05-dsh-plugin-tool-surface.md`](../../.agents/notes/implemented/architecture/2026-10-05-dsh-plugin-tool-surface.md)；
-装机事故与修法见 [`.agents/notes/implemented/bug-fix/2026-10-05-dsh-plugin-tool-registration-effect.md`](../../.agents/notes/implemented/bug-fix/2026-10-05-dsh-plugin-tool-registration-effect.md)。
+装机事故与修法见 [`.agents/notes/implemented/bug-fix/2026-10-05-dsh-plugin-tool-registration-effect.md`](../../.agents/notes/implemented/bug-fix/2026-10-05-dsh-plugin-tool-registration-effect.md)；
+**兼容性闸门事故与修法**见 [`.agents/notes/implemented/bug-fix/2026-10-18-dsh-plugin-peer-range-compat.md`](../../.agents/notes/implemented/bug-fix/2026-10-18-dsh-plugin-peer-range-compat.md)。

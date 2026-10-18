@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Oh Story 网文写作",
+    "description": "随包交付 13 个 Oh Story 写作 skill，并把 storyctl / 去 AI 味 / 字数口径等确定性脚本封装为 oh_story_* 工具。"
+  }
+}
