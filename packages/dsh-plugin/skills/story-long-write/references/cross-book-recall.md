@@ -12,7 +12,7 @@ description: 多对标跨书召回
 
 ## 三道防线
 1. 副对标 `文风.md` 不读，避免多本文风互相污染
-2. 角色/剧情/设定模块可从所有副对标召回，但必须按「同题材 > 弱相关 > 参考」排序，并受每本/总量预算约束
+2. 角色/剧情/设定模块可从所有副对标召回，但必须先按相关性、再按引用强度排序（细则见下文），并受每本/总量预算约束
 3. narrative-writer 正文 prompt 只吃主对标文风/原文锚点 + 预算筛选后的 `副对标召回摘要`；不读取、不传入副对标 `文风.md` 或副书原文
 
 ## 跨题材判断
@@ -54,10 +54,10 @@ description: 多对标跨书召回
 
 | 拆文字段 | 含义 | 写作参考 |
 |---------|------|---------|
-| `beats` | 结构段（开端/发展/高潮/结局） | `outline-methods.md` + 当前 `genre-prose-cards/` 题材卡 |
+| `beats` | 结构段（开端/发展/高潮/结局） | `outline-methods.md`「卷纲排法」+ 当前 `genre-prose-cards/` 题材卡 |
 | `hooks` | 钩子数 | `long-chapter-hooks.md` / `long-suspense.md` |
 | `setup_clues` | 反转铺垫线索 | `long-reversal.md` |
-| `character_archetypes` | 反差人物 | `character-basics.md` / `character-design-methods.md` + 当前题材卡 |
+| `character_archetypes` | 反差人物 | `character-basics.md`「反差设计」+ 当前题材卡 |
 | `reusable_structures` | 可复用手法 | `outline-methods.md` / `plot-core-methods.md`，按结构功能选择 |
 | `reversal_type` | 反转类型（7 枚举） | `long-reversal.md` 对应骨架 |
 
