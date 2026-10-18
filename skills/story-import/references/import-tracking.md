@@ -1,12 +1,12 @@
 # 追踪初始化时刻（仅长篇）
 
-Phase 4 只读本文件、[tracking-initialization.md](tracking-initialization.md)（初始化事务的原始 JSON 与导入边界，完整读取）和 [character-state-reverse.md](character-state-reverse.md)（核心角色快照反推）。导入截止章、残稿决定、卷划分读导入记录（`{书目录}/.story/work/导入记录.md`）；证据只取已落盘的 `拆文库/{导入书名}/` 与项目 `大纲/`，不重读原文。续写时的逐章事务与导入无关，不读。
+Phase 4 完整读取本文件、[tracking-initialization.md](tracking-initialization.md) 的事务骨架与 [character-state-reverse.md](character-state-reverse.md) 的快照规则。截止章、残稿决定与卷划分取自导入记录；证据取自已落盘的拆文库和项目 `大纲/`，不重读原文。
 
 导入项目必须通过本 skill 自带的 `scripts/tracking_commit.py init` 一次性生成追踪状态，禁止模型分别写最终文件。
 
 ## 语义准备顺序
 
-1. **导入截止章**：把最后完整章 N 写入初始化事务的 `last_chapter`。工具在 meta 记录 `imported_through_chapter=N`；导入旧章没有日更事务，不得为第 1..N 章伪造逐章增量，也不额外生成一份重复当前状态的叙事基线。
+1. **导入截止章**：将最后完整章 N 写入 `last_chapter`，工具在 `_tracking-state.json` 写入 `imported_through_chapter=N`。第 1..N 章不伪造日更事务，也不另写一份重复当前状态的叙事基线。
 2. **核心角色当前快照**：从拆书产物反推主角、反派、核心配角的截至 N 章状态，按角色写入 `character_snapshots`，工具生成 `追踪/角色状态/{角色名}.md`；算法见 character-state-reverse.md。
 3. **伏笔当前行**：从有正文证据的铺垫/回收事件生成 `foreshadow`（识别方法见下）。每个 ID 只保留当前状态一行；尚未实际埋设的未来设计留在大纲，不写 `伏笔.md`。
 4. **事实与读者认知**：把关键事件生成到 `timeline_events`（提取方法见下）。同一事件同时写客观事实、读者截至 N 章已知内容和实际揭示状态；未来计划揭示章不得伪装成已发生事实。
@@ -26,7 +26,7 @@ Phase 4 只读本文件、[tracking-initialization.md](tracking-initialization.m
 
 ## 条目形状与容量
 
-在 tracking-initialization.md 的骨架上填条目（导入时 `last_chapter` 写 N）：
+在 tracking-initialization.md 的事务骨架上填条目，`last_chapter` 写 N；下面只展示伏笔、时间线与近章速记，不能替代完整初始化事务：
 
 ```json
 {
@@ -50,7 +50,7 @@ Phase 4 只读本文件、[tracking-initialization.md](tracking-initialization.m
 - `context` 在 init 时收六项：`position`、`long_term_constraints`、`active_character_names`、`continuity_risks`、`recent_chapters`（最多 3 章，按章号升序）、`next_chapter_commitments`。
 - `character_snapshots` 里的角色就是核心角色；四个列表不限条数，单角色文件目标 ≤4096 字节，硬上限 8192 字节，超过在任何写入前拒绝。`active_character_names` 最多 6 人且必须已有快照；`long_term_constraints` 最多 6 条。
 - `上下文.md` ≤12288 字节，只含 7 个顶层区块：当前位置、长期约束、核心角色状态、活跃伏笔（最多 8 条）、近三章速记、下一章承诺、连贯性风险。
-- 报错按提示改事务本身再跑；排查字段全集时才查 [tracking-transaction.md](tracking-transaction.md)。导入后续写时角色状态怎么更新见 [state-tracking.md](state-tracking.md)，本时刻不读。
+- 报错按提示改事务本身再跑，字段形状以 tracking-initialization.md 的骨架和本节为准。
 
 ## 伏笔提取
 
@@ -62,11 +62,11 @@ Phase 4 只读本文件、[tracking-initialization.md](tracking-initialization.m
 | 角色秘密 | 高 | 标记为角色伏笔 |
 | 未解决的悬念 | 高 | 从章尾标记提取 |
 
-状态推断：铺垫点在后续章节有「揭示」或「解决」类情节点 → 已回收；无后续呼应 → 已埋；半成品最后几章的铺垫 → 已埋，摘要里注明「接近断点」。
+状态推断：后续情节点实际回应了同一伏笔 → 已回收；尚未回应 → 已埋。不能只凭节点叫“揭示”或“解决”就判回收；半成品末尾尚未回应的铺垫可注明“接近断点”。
 
 ## 时间线提取
 
-从情节点和时间标记中提取：明确日期（“天元三年春”）直接记录；相对时间（“三日后”）推算；事件间隔（“翌日”）连续标记；季节标记（“入冬”）推断季节。按章节顺序排列，同一章内按情节点序号排列；时间标记缺失时标注 `[推断]`。
+从情节点和时间标记提取：明确日期直接记录；相对时间有可靠参照点时推算，季节只能确定到季节。按章节、章内情节点序号整理；缺少参照时写“时间未明”，有依据的推断标 `[推断]`。
 
 ## 验收
 
