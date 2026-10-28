@@ -570,16 +570,34 @@ def test_spawn_preflight_uses_agents_version_not_file_existence() -> None:
 
     current = manifest.agents_version
     current_contract = """
-读取 `.story-deployed` 的 `agents_version: {current}`；不一致时照常按文件存在性检查并 spawn，
+读取 `.story-deployed` 的 `agents_version: {current}`；不一致时照常按当前宿主角色来源检查并 spawn，
 报告 `Notice: agents bundle 版本不匹配（项目 {{N}}，本版 {current}）` 并提示重跑 `/story-setup`。
 大于 {current} 时额外提示先更新 oh-story-claudecode。
-只有 agent 文件缺失、或运行时不暴露 custom agent 时才降级 solo/direct，报告 `Fallback: ... -> solo`。
+只有当前宿主角色缺失或不暴露调用能力时才降级 solo/direct，报告 `Fallback: ... -> solo`。
 """.format(current=current)
     require(
         not VALIDATOR.spawn_preflight_findings(
             current_contract, manifest, Path("current-fixture.md")
         ),
         "the current shared spawn preflight must pass",
+    )
+
+    review_contract = current_contract.replace(
+        "只有当前宿主角色缺失或不暴露调用能力时才降级 solo/direct",
+        "版本提示本身不触发降级；文件缺失或异常、工具不可用、递归限制或调用失败按 Phase 0 处理",
+    )
+    review_path = Path("skills/story-review/SKILL.md")
+    require(
+        not VALIDATOR.spawn_preflight_findings(review_contract, manifest, review_path),
+        "review must retain the existing Phase 0 failure paths without blocking stale bundles",
+    )
+    require(
+        VALIDATOR.spawn_preflight_findings(
+            review_contract.replace("版本提示本身不触发降级", "版本不匹配时降级"),
+            manifest,
+            review_path,
+        ),
+        "review must not turn a version notice into a fallback trigger",
     )
 
     bumped = manifest_with(agents_version=current + 1)
@@ -624,6 +642,12 @@ def test_author_note_preflight_keeps_engine_words_in_tech_note() -> None:
         not VALIDATOR.author_note_preflight_findings(routed, Path("routed-fixture.md")),
         "a Fallback routed into 技术备注 in the same sentence must pass",
     )
+    # 路由和导入也有版本与降级提示，名单漏掉它们时原文会被念给作者。
+    for entry in ("skills/story/SKILL.md", "skills/story-import/SKILL.md"):
+        require(
+            entry in VALIDATOR.AUTHOR_NOTE_PREFLIGHT_SKILLS,
+            "{} must stay in AUTHOR_NOTE_PREFLIGHT_SKILLS".format(entry),
+        )
     for relative in VALIDATOR.AUTHOR_NOTE_PREFLIGHT_SKILLS:
         path = REPO_ROOT / relative
         require(

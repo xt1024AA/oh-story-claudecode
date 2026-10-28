@@ -996,6 +996,86 @@ class TrackingCommitTests(unittest.TestCase):
         self.assertIn("is reserved on Windows", result.stderr)
         self.assertEqual(self.read_state()["state_revision"], 0)
 
+    def cast_document(self, count: int, *, long_fields: bool = False) -> dict[str, object]:
+        document = initial_document()
+        names = [f"女主{index:02d}" for index in range(1, count + 1)]
+        document["context"]["active_character_names"] = names
+        for name in names:
+            entry = snapshot()
+            if long_fields:
+                entry.update(identity="身" * 80, state="状" * 100, goal="目" * 100)
+            document["character_snapshots"][name] = entry
+        return document
+
+    def test_twenty_active_characters_pass_and_the_twenty_first_is_rejected_before_any_write(self) -> None:
+        result = self.run_tool("init", self.cast_document(21), expect=2)
+        self.assertIn("at most 20 names", result.stderr)
+        # 只允许留下加锁时建的空 追踪/ 目录。
+        self.assertFalse((self.project / "追踪/_tracking-state.json").exists())
+        self.assertFalse((self.project / "追踪/上下文.md").exists())
+        self.assertFalse((self.project / "追踪/角色状态").exists())
+
+        self.run_tool("init", self.cast_document(20))
+        context = (self.project / "追踪/上下文.md").read_text(encoding="utf-8")
+        self.assertIn("女主20｜", context)
+        self.run_tool("check")
+
+        overflow = transaction(1, character=True)
+        overflow["context"]["active_character_names"] = self.read_state()["context"]["active_character_names"] + ["江晨"]
+        before = self.read_state()
+        result = self.run_tool("commit", overflow, expect=2)
+        self.assertIn("at most 20 names", result.stderr)
+        self.assertEqual(self.read_state(), before)
+        self.assertFalse((self.project / "追踪/逐章记录/第001章.md").exists())
+
+    def test_existing_state_with_six_to_twenty_active_characters_still_checks_drafts_and_commits(self) -> None:
+        # 旧版只收 6 人；作者改过脚本写下的 7–20 人 state，升级后必须照常 check / draft / commit。
+        for count in (6, 7, 20):
+            with self.subTest(count=count):
+                self.project = Path(self.temporary.name) / f"群像{count}"
+                self.project.mkdir()
+                self.run_tool("init", self.cast_document(count))
+                self.run_tool("check")
+                (self.project / "大纲").mkdir()
+                (self.project / "大纲" / "细纲_第001章.md").write_text("### 第 1 章：家宴\n", encoding="utf-8")
+                drafted = subprocess.run(
+                    [sys.executable, str(TOOL), "draft", "--project", str(self.project), "--chapter", "1"],
+                    text=True, capture_output=True, check=False, encoding="utf-8")
+                self.assertEqual(drafted.returncode, 0, drafted.stderr)
+                draft_path = Path(json.loads(drafted.stdout)["draft"])
+                draft = json.loads(draft_path.read_text(encoding="utf-8"))
+                self.assertEqual(len(draft["context"]["active_character_names"]), count)
+                draft["delta"]["result"] = "众人在家宴上各怀心思。"
+                draft["context"]["position"].update({"story_time": "家宴当晚", "scene": "正厅"})
+                self.run_tool("commit", draft)
+                state = self.read_state()
+                self.assertEqual(state["last_committed_chapter"], 1)
+                self.assertEqual(len(state["context"]["active_character_names"]), count)
+                self.run_tool("check")
+
+    def test_hot_context_byte_cap_still_rejects_a_full_cast_before_any_write(self) -> None:
+        result = self.run_tool("init", self.cast_document(20, long_fields=True), expect=2)
+        self.assertIn("hot context exceeds 12288 bytes", result.stderr)
+        self.assertFalse((self.project / "追踪/_tracking-state.json").exists())
+        self.assertFalse((self.project / "追踪/上下文.md").exists())
+        self.assertFalse((self.project / "追踪/角色状态").exists())
+
+        self.run_tool("init", self.cast_document(20))
+        grown = transaction(1)
+        names = self.read_state()["context"]["active_character_names"]
+        grown["context"]["active_character_names"] = names
+        grown["delta"]["character_changes"] = [{"name": name, "change": "心思写满"} for name in names]
+        grown["character_snapshots"] = {
+            name: {**snapshot(), "identity": "身" * 80, "state": "状" * 100, "goal": "目" * 100} for name in names
+        }
+        before = self.read_state()
+        context_before = (self.project / "追踪/上下文.md").read_bytes()
+        result = self.run_tool("commit", grown, expect=2)
+        self.assertIn("hot context exceeds 12288 bytes", result.stderr)
+        self.assertEqual(self.read_state(), before)
+        self.assertEqual((self.project / "追踪/上下文.md").read_bytes(), context_before)
+        self.assertFalse((self.project / "追踪/逐章记录/第001章.md").exists())
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

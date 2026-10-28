@@ -16,7 +16,7 @@ from typing import Any
 
 
 REPO = Path(__file__).resolve().parents[1]
-TOOL = REPO / "skills" / "story" / "scripts" / "author_memory_commit.py"
+TOOL = REPO / "skills" / "story-long-write" / "scripts" / "author_memory_commit.py"
 
 
 def run(*args: str, expect: int = 0) -> subprocess.CompletedProcess[str]:
@@ -126,8 +126,9 @@ def query(workspace: Path, *args: str, expect: int = 0) -> dict[str, Any]:
     result = run("query", "--workspace", str(workspace), *args, expect=expect)
     if expect:
         return {"stderr": result.stderr}
-    assert len(result.stdout.encode("utf-8")) <= 2048, "query 载荷恒 ≤2048 字节"
-    return json.loads(result.stdout)
+    document = json.loads(result.stdout)
+    assert sum(len((line + "\n").encode("utf-8")) for line in document["lines"]) <= 2048, "交给执行者的 lines 恒 ≤2048 字节"
+    return document
 
 
 def load_tool_module() -> Any:
@@ -143,7 +144,7 @@ def synthetic_state(generator: random.Random, module: Any, *, book: str | None, 
     values = {"book": books, "genre": genres, "workflow": workflows}
     prefix = "BP" if book is not None else "AP"
     items = {}
-    for number in range(1, generator.randint(1, 30) + 1):
+    for number in range(1, generator.randint(1, 60) + 1):
         if book is None:
             level = generator.choice(["global", "global", "book", "genre", "workflow"])
             value = None if level == "global" else generator.choice(values[level])
@@ -206,68 +207,105 @@ def assert_no_false_negatives() -> None:
     assert warned_libraries > 20, "随机库里触发提醒的太少，这个属性测试没覆盖到超编区间"
 
 
-def assert_slice_weight_counts_separators() -> None:
-    """挑「最重切片」必须按真实载荷占位算，即 compact 字节＋每条的 JSON 分隔符。
+def assert_slice_weight_uses_rendered_lines() -> None:
+    """挑「最重切片」必须按执行者读到的行算，与装填同一把尺。
 
-    只比字节和会挑错：条目多、单条短的切片字节和更小，实际占位却更大，于是
-    估算判「装得下」而真实查询溢出——warnings 假阴性。下面的老库 fixture
-    （题材甲 4 条各 381 字节的存量长断言 vs 题材乙 10 条各 92 字节）两把尺子挑的
-    切片不同，且只有乙会溢出。
+    按 JSON 字节挑会挑错：scope 取值很长、断言很短的切片 JSON 更重，渲染成
+    「- 断言（编号）」后却更轻，于是估算判「装得下」而真实查询溢出——warnings
+    假阴性。下面的 fixture 两把尺子挑的切片不同，且只有乙会溢出。
     """
     module = load_tool_module()
 
-    def sized(number: str, value: str, byte_length: int) -> dict[str, Any]:
-        full, remainder = divmod(byte_length, 3)
+    def item(number: int, value: str, assertion: str) -> dict[str, Any]:
         return {
-            "id": number, "kind": "prose_style",
+            "id": f"AP{number:03d}", "kind": "prose_style",
             "scope": {"level": "genre", "value": value},
-            "assertion": "文" * full + "x" * remainder, "status": "active",
+            "assertion": assertion, "status": "active",
             "importance": "medium", "updated_revision": 400, "confirmation_count": 1,
         }
 
     items = {}
-    for index in range(4):
-        items[f"AP{index + 1:03d}"] = sized(f"AP{index + 1:03d}", "甲", 381)
-    for index in range(10):
-        items[f"AP{index + 100:03d}"] = sized(f"AP{index + 100:03d}", "乙", 92)
-    heavy = [item for item in items.values() if item["scope"]["value"] == "甲"]
-    many = [item for item in items.values() if item["scope"]["value"] == "乙"]
-    assert sum(map(module.compact_bytes, heavy)) > sum(map(module.compact_bytes, many)), \
-        "fixture 前提：甲的字节和更大（旧尺子会挑甲）"
-    assert module.slice_weight(heavy) < module.slice_weight(many), \
-        "fixture 前提：乙的真实占位更大（新尺子必须挑乙）"
-    assert not module.fit_items(sorted(heavy, key=module.query_sort_key), 700)[1], "甲自己装得下"
-    assert module.fit_items(sorted(many, key=module.query_sort_key), 700)[1], "乙自己会溢出"
+    for index in range(12):
+        items[f"AP{index + 1:03d}"] = item(index + 1, "甲" * 60, f"甲短{index}")
+    for index in range(12):
+        items[f"AP{index + 100:03d}"] = item(index + 100, "乙", f"乙偏好{index}：" + "文" * 52)
+    heavy_json = [entry for entry in items.values() if entry["scope"]["value"].startswith("甲")]
+    heavy_lines = [entry for entry in items.values() if entry["scope"]["value"] == "乙"]
+
+    def json_weight(entries: list[dict[str, Any]]) -> int:
+        return sum(len(json.dumps(module.compact_item(entry), ensure_ascii=False).encode("utf-8")) for entry in entries)
+
+    assert json_weight(heavy_json) > json_weight(heavy_lines), "fixture 前提：甲的 JSON 更重（按 JSON 挑会挑甲）"
+    assert module.slice_weight(heavy_json) < module.slice_weight(heavy_lines), "fixture 前提：乙渲染出的行更重（必须挑乙）"
+    assert not module.fit_items(sorted(heavy_json, key=module.query_sort_key), 700)[1], "甲自己装得下"
+    assert module.fit_items(sorted(heavy_lines, key=module.query_sort_key), 700)[1], "乙自己会溢出"
     warnings = module.query_budget_warnings({"items": items, "state_revision": 700, "journal": []}, None)
-    assert any("最坏查询" in warning for warning in warnings), "挑错切片会让超编的乙被漏报——切片轻重必须算上列表分隔符"
+    assert any("最坏查询" in warning for warning in warnings), "挑错切片会让超编的乙被漏报——切片轻重必须按渲染后的行算"
+
+    # 少而长 对 多而短：只比断言字节会挑「甲」，可每行还有 14 字节固定开销，「乙」渲染后更重。
+    def entry(number: int, level: str, value: str | None, chars: int) -> dict[str, Any]:
+        return {**item(number, value or "", "文" * chars), "scope": {"level": level, "value": value}}
+
+    mixed = {}
+    for index in range(12):
+        mixed[f"AP{index + 1:03d}"] = entry(index + 1, "global", None, 40)
+    mixed["AP013"] = entry(13, "global", None, 6)
+    for index in range(3):
+        mixed[f"AP{index + 20:03d}"] = entry(index + 20, "genre", "甲", 40)
+    for index in range(5):
+        mixed[f"AP{index + 30:03d}"] = entry(index + 30, "genre", "乙", 23)
+    few_long = [e for e in mixed.values() if e["scope"]["value"] == "甲"]
+    many_short = [e for e in mixed.values() if e["scope"]["value"] == "乙"]
+    assert sum(len(e["assertion"].encode("utf-8")) for e in few_long) > sum(len(e["assertion"].encode("utf-8")) for e in many_short)
+    assert module.slice_weight(few_long) < module.slice_weight(many_short), "fixture 前提：乙渲染后更重"
+    library = {"items": mixed, "state_revision": 700, "journal": []}
+    assert module.merged_query(library, None, {"prose_style"}, {"genre": "乙", "workflow": None})[1], "真实查询乙会漏条"
+    assert any("最坏查询" in w for w in module.query_budget_warnings(library, None)), "每行固定开销必须算进切片轻重"
 
 
-def assert_omitted_ids_follow_priority() -> None:
-    """omitted_ids 恒按候选优先级排序，不按被丢弃的先后。
+def assert_omitted_follow_priority_and_lines_fit() -> None:
+    """装填只量执行者读到的行；漏项全数列出、按候选优先级排序、附断言首句。
 
-    收尾回吐的条目优先级高于循环里跳过的那些；按丢弃先后排会把它追加到末尾，
-    正好被 OMITTED_IDS_MAX 的封顶切掉——作者看到的漏项清单里，最该整理的那条
-    反而不见了。下面的 fixture 恰好让回吐触发且漏项超过 20 条。
+    漏项清单不进执行者 prompt，所以不封顶——作者要知道的是哪几条没带上，
+    清单截断会让排在后面的条目永远不被提起。
     """
     module = load_tool_module()
     items = [{
         "id": f"AP{number:03d}",
         "kind": "prose_style",
         "scope": {"level": "global", "value": None},
-        "assertion": "文" * 25,
+        "assertion": f"第{number}条" + "文" * 36,
         "importance": "medium",
         "updated_revision": 100 - number,
         "confirmation_count": 1,
-    } for number in range(1, 31)]
+    } for number in range(1, 41)]
     items.sort(key=module.query_sort_key)
     result, omitted = module.fit_items([dict(item) for item in items], 500)
     order = {item["id"]: index for index, item in enumerate(items)}
-    assert len(omitted) > module.OMITTED_IDS_MAX, "fixture 必须漏到封顶以上，否则测不到截断"
+    assert len(omitted) > 20, "fixture 必须漏到旧封顶 20 以上，才能证明漏项不再被截断"
     assert len(result["items"]) + result["omitted"] == len(items), "条目守恒"
-    assert omitted == sorted(omitted, key=order.__getitem__), "漏项必须按候选优先级排序"
-    assert result["omitted_ids"] == sorted(omitted, key=order.__getitem__)[:module.OMITTED_IDS_MAX], \
-        "omitted_ids 报的必须是优先级最高的那批——回吐的条目不得被封顶切掉"
-    assert result["omitted"] == len(omitted), "omitted 保留真实总数"
+    assert result["omitted_ids"] == omitted == sorted(omitted, key=order.__getitem__), "漏项全数列出且按候选优先级排序"
+    assert set(result["omitted_summaries"]) == set(omitted), "每个漏项都要有给作者看的首句"
+    assert all(len(summary) <= 15 for summary in result["omitted_summaries"].values())
+    assert result["lines"] == [f"- {item['assertion']}（{item['id']}）" for item in result["items"]], "lines 就是执行者读到的原文＋编号"
+    used = sum(len((line + "\n").encode("utf-8")) for line in result["lines"])
+    assert used <= module.QUERY_MAX_BYTES, "lines 必须装在注入预算内"
+    first_dropped = next(item for item in items if item["id"] == omitted[0])
+    assert used + module.line_bytes(first_dropped) > module.QUERY_MAX_BYTES, "第一个漏项确实装不下，不是被提前放弃"
+    # 写手读到的文字计 2048：40 个字（120 字节）的断言能装 15 条，旧的 JSON 外壳口径只装得下 8 条。
+    full = [{**item, "assertion": "文" * 40} for item in items[:15]]
+    assert not module.fit_items(full, 500)[1], "按行计量时 15 条 40 字断言必须全部装下"
+    assert set(result["omitted_importance"]) == set(omitted), "合并多次查询时要靠重要度重排漏项"
+    # 边界：lines 正好 2048 字节全部装下，多 1 字节最后一条就进漏项
+    exact = full + [{**items[15], "assertion": "文" * 8}]
+    assert sum(module.line_bytes(item) for item in exact) == module.QUERY_MAX_BYTES
+    assert not module.fit_items(exact, 500)[1], "正好 2048 字节必须全部装下"
+    over = full + [{**items[15], "assertion": "文" * 8 + "x"}]
+    assert module.fit_items(over, 500)[1] == [items[15]["id"]], "多 1 字节最后一条进漏项"
+    # 跳过不中断：装不下的长条不挡后面装得下的短条
+    queue = full[:14] + [{**items[20], "assertion": "长" * 250}, {**items[21], "assertion": "短"}]
+    skipped_result, skipped = module.fit_items(queue, 500)
+    assert skipped == [items[20]["id"]] and skipped_result["items"][-1]["id"] == items[21]["id"], "装不下的跳过，后面的短条照装"
 
 
 def assert_single_root_layout(temporary: Path, input_path: Path) -> None:
@@ -978,7 +1016,7 @@ def main() -> None:
                         f"第 {index} 条用于撑满注入预算。",
                     ),
                 }
-                for index in range(12)
+                for index in range(24)
             ],
         )
         crowded = json.loads(commit(auto_workspace, input_path, crowding).stdout)
@@ -1024,7 +1062,7 @@ def main() -> None:
                 f"第 {index} 条全局偏好。",
             )))
         last_b = None
-        for index in range(7):
+        for index in range(16):
             last_b = json.loads(record(ruler_workspace, input_path, remember(f"book-b-{index}", preference(
                 f"乙书偏好{index}：情绪落在具体物件上，对话短句推进，收尾用动作不用感叹。",
                 f"第 {index} 条乙书偏好。",
@@ -1041,8 +1079,8 @@ def main() -> None:
         sighted = json.loads(record(ruler_workspace, input_path, remember("global-sighted", preference("全局：少用感叹号", "记住：少用感叹号。")), "--book-root", str(root_b)).stdout)
         assert sighted["store"] == "project" and any("正文初稿" in warning for warning in sighted["warnings"]), "传了 --book-root 的项目级写入要把这本书算进提醒"
 
-        # omitted_ids 封顶：极端超编（直改 state 模拟老库长断言）保留真实总数、
-        # 列表最多 20 条，载荷恒 ≤2048、绝不整包报错；768B 存量断言仍可校验通过
+        # 极端超编（直改 state 模拟老库长断言）：漏项全数列出并附首句，注入的行恒 ≤2048、
+        # 绝不整包报错；768B 存量断言仍可校验通过
         flood = state(ruler_workspace)
         base_item = json.loads(json.dumps(flood["items"]["AP001"], ensure_ascii=False))
         for number in range(100, 140):
@@ -1056,7 +1094,9 @@ def main() -> None:
         flooded_document = query(ruler_workspace, "--kind", "prose_style")
         assert flooded_document["items"], "跳过不中断——装得下的条目仍应返回"
         assert flooded_document["omitted"] > 20
-        assert len(flooded_document["omitted_ids"]) == 20
+        assert len(flooded_document["omitted_ids"]) == flooded_document["omitted"], "漏项清单不进 prompt，不再封顶"
+        assert set(flooded_document["omitted_summaries"]) == set(flooded_document["omitted_ids"])
+        assert sum(len((line + "\n").encode("utf-8")) for line in flooded_document["lines"]) <= 2048
 
         # ---- 重要度优先：high 全局铁律不得被 low 本书琐事挤出注入预算（本书条目在书级 store） ----
         priority_workspace = Path(temporary) / "重要度工作区"
@@ -1068,7 +1108,7 @@ def main() -> None:
         )):
             record(priority_workspace, input_path, remember(f"rule-{index}", preference(rule, f"作者原话：{rule}", importance="high")))
         crowd_out = None
-        for index in range(14):
+        for index in range(24):
             crowd_out = json.loads(record(priority_workspace, input_path, remember(f"trivia-{index}", preference(
                 f"本书临时{index}：这一卷多用短句，场景切换不加过渡段落。",
                 f"第 {index} 条本卷临时偏好。",
@@ -1082,9 +1122,11 @@ def main() -> None:
         assert crowd_out["warnings"], "超编写入必须携带提醒"
         assert any("「" in warning for warning in crowd_out["warnings"]), "提醒要带断言首句，只给编号作者无从判断"
 
-        # ---- 注入载荷字段集是契约：多一个字段就多占 prompt 预算 ----
+        # ---- 注入载荷是契约：执行者只读 lines（断言原文＋编号），items 只带四个字段给主会话判断 ----
         assert all(set(item) == {"id", "kind", "scope", "assertion"} for item in priority_query["items"]), \
-            "query 载荷只带 id/kind/scope/assertion；reason、evidence 等一律不进 prompt"
+            "query items 只带 id/kind/scope/assertion；reason、evidence 等一律不出 store"
+        assert priority_query["lines"] == [f"- {item['assertion']}（{item['id']}）" for item in priority_query["items"]], \
+            "lines 与 items 一一对应，就是交给执行者的原文"
 
         # ---- 作者画像.md 必须显示 importance：它是「整理作者记忆」的去留依据 ----
         priority_profile = (memory_dir(priority_workspace) / "作者画像.md").read_text(encoding="utf-8")
@@ -1114,8 +1156,8 @@ def main() -> None:
         assert_single_root_case_insensitive_path(Path(temporary), input_path)
         assert_other_store_failure_is_nonfatal(Path(temporary), input_path)
         assert_no_false_negatives()
-        assert_omitted_ids_follow_priority()
-        assert_slice_weight_counts_separators()
+        assert_omitted_follow_priority_and_lines_fit()
+        assert_slice_weight_uses_rendered_lines()
 
     # 只锚 prompt 与运行时 CLI / 槽位的对接片段，不钉措辞
     injection_contracts = {
@@ -1127,28 +1169,35 @@ def main() -> None:
         # 短篇派写手的 prompt 同样随「只在交给写手时才用」迁到 agent-calls.md（v0.8.2）。
         REPO / "skills/story-short-write/references/agent-calls.md": (
             "作者偏好 query",
-            "\\n作者偏好：{",
-        ),
-        REPO / "skills/story-deslop/SKILL.md": (
-            "query --workspace {工作区} --book-root {书目录} --kind prose_style",
+            "\n作者偏好：{",
         ),
         # 去味交给写手的 prompt 随「只在交给写手时才用」迁到 agent-calls.md（v0.8.3）。
         REPO / "skills/story-deslop/references/agent-calls.md": (
-            "\\n作者偏好：{",
-        ),
-        REPO / "skills/story-review/SKILL.md": (
-            "query --workspace {工作区} --book-root {书目录} --kind delivery --kind interaction --kind prose_style",
+            "\n作者偏好：{",
         ),
         REPO / "skills/story-short-write/SKILL.md": (
             "query --workspace {工作区} --book-root {项目目录} --kind prose_style --kind story_design",
+            "没装下的",
         ),
+        # 装不下的习惯要用原话告诉作者（dsh#61）：组装脚本拼好那句话，单章与日更批末汇报模板各有一行接住。
+        REPO / "skills/story-long-write/references/workflow-chapter.md": ("习惯没带上",),
+        REPO / "skills/story-long-write/references/workflow-daily.md": ("习惯没带上",),
     }
     for path, required_fragments in injection_contracts.items():
-        content = path.read_text(encoding="utf-8")
+        # 单行转义 prompt 与 fenced 多行 prompt 都必须实际传递同一字段。
+        content = path.read_text(encoding="utf-8").replace("\\n", "\n")
         for fragment in required_fragments:
             assert fragment in content, f"missing author-memory injection contract in {path}: {fragment}"
-    # #436：文档不再引导推断写入
-    for path in sorted((REPO / "skills").glob("*/references/author-memory*.md")) + [REPO / "skills/story/SKILL.md", REPO / "skills/story-review/SKILL.md", REPO / "skills/story-deslop/SKILL.md"]:
+    # 只有写作 skill 拥有记忆协议和工具；其他 skill 通过调用方接收裁决。
+    owners = ("story-long-write", "story-short-write")
+    expected_protocols = {REPO / "skills" / owner / "references" / name
+                          for owner in owners
+                          for name in ("author-memory.md", "author-memory-maintenance.md")}
+    assert set((REPO / "skills").glob("*/references/author-memory*.md")) == expected_protocols
+    assert set((REPO / "skills").glob("*/scripts/author_memory_commit.py")) == {
+        REPO / "skills" / owner / "scripts/author_memory_commit.py" for owner in owners}
+    # #436：写作入口和协议不再引导推断写入。
+    for path in sorted(expected_protocols) + [REPO / "skills" / owner / "SKILL.md" for owner in owners]:
         content = path.read_text(encoding="utf-8")
         assert "repeated_correction" not in content and "inferred_pattern" not in content, f"{path} 仍在引导推断写入"
     # v0.8.2：协议按作者时刻拆分——记一条偏好的时刻只读 author-memory.md，少见时刻的规则在维护文件。
@@ -1158,11 +1207,11 @@ def main() -> None:
         "author-memory-maintenance.md": ("## 整理作者记忆", "## 任务映射表", "## 单书布局", "## 存量迁移", "## 冲突候选", "12288", "migrate --workspace", "commit  --workspace", "check   --workspace"),
     }
     for name, fragments in moment_anchors.items():
-        for path in sorted((REPO / "skills").glob(f"*/references/{name}")):
+        for path in sorted(path for path in expected_protocols if path.name == name):
             content = path.read_text(encoding="utf-8")
             for fragment in fragments:
                 assert fragment in content, f"{path} 缺少作者记忆时刻锚点：{fragment}"
-    hot = (REPO / "skills/story/references/author-memory.md").read_text(encoding="utf-8")
+    hot = (REPO / "skills/story-long-write/references/author-memory.md").read_text(encoding="utf-8")
     for rare in ("## 整理作者记忆", "12288", "migrate --workspace", "commit  --workspace"):
         assert rare not in hot, f"少见时刻规则回流到 author-memory.md：{rare}"
 

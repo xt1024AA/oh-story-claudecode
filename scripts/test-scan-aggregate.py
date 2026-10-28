@@ -558,6 +558,357 @@ def test_title_parse_failure_words(tmp: Path) -> None:
     check("书名大多没解出来" in text and "[标题解析异常]" not in text, "title-parse failure is shown in plain words")
 
 
+# ---------------------------------------------------------------------------
+# 书库筛选页（七猫书库、起点书库）：按页序排、页面没有热度数字；所有页写进一个文件，名次跨页连续。
+# 列表名带「新书」，聚合时进「新书榜」列；和同平台带热度的榜单放在一起时，不能把平台热度口径拉掉。
+# ---------------------------------------------------------------------------
+
+LIB_DESC = "末世降临第三天，他发现自己能看见每个人头顶的倒计时，而他自己的只剩七天。"
+
+
+def qimao_rank(list_title: str, books: list[tuple]) -> str:
+    """七猫榜单页（大热榜），字段齐全、质量 [OK]，照 qimao-rank-scraper.js 的 renderMarkdown。"""
+    n = len(books)
+    lines = [f"# 七猫 · {list_title}", "", "- 数据质量：[OK]", f"- 有效条目：{n} / {n}", "- 问题摘要：无",
+             f"- 作品页链接：{n} / {n}", f"- 热度命中：{n} / {n}", "- 来源：https://www.qimao.com/paihang/boy/hot/date/",
+             "- 抓取时间：2026-10-09T01:00:00.000Z", f"- 条目数：{n}", "", "---", ""]
+    for i, (title, author, genre_name, sub, words, heat) in enumerate(books, 1):
+        lines.append(f"### #{i} {title}")
+        lines.append(f"*{author} · {genre_name} · {sub} · 连载中 · {words} · {heat}热度*")
+        lines += ["**最新更新：** 2026-10-08 · 第120章", f"[作品页](https://www.qimao.com/shuku/9{i:05d}/)", "", "---", ""]
+    return "\n".join(lines)
+
+
+def qimao_library(books: list[tuple]) -> str:
+    """七猫书库：元信息行和大热榜同序、去掉热度段；更新时间单独一行。"""
+    lines = ["# 七猫 · 全站书库点击新书", "", "- 来源：https://www.qimao.com/shuku/a-a-a-1-1-a-0-click-1/",
+             "- 筛选：全部频道·30万字以下·3天内更新·连载中；按点击量排序，取前 5 页；页序即名次，页面没有热度数字",
+             "- 抓取时间：2026-10-09T02:00:00.000Z", f"- 有效条目：{len(books)}", "- 问题摘要：无", "- 数据质量：[OK]",
+             "", "---", ""]
+    for i, (book_id, title, author, genre_name, sub, words) in enumerate(books, 1):
+        lines.append(f"### #{i} {title}")
+        lines.append(f"*{author} · {genre_name} · {sub} · 连载中 · {words}*")
+        lines += ["**最新更新：** 2026-10-09更新", f"[作品页](https://www.qimao.com/shuku/{book_id}/)",
+                  "", "**简介**", "", LIB_DESC, "", "---", ""]
+    return "\n".join(lines)
+
+
+def qidian_library(books: list[tuple]) -> str:
+    """起点书库：照 qidian-rank-scraper.js 的 renderMarkdown（--type library）。作品页的总推荐单列为
+    「新书总推荐」，不是聚合认的热度行名，所以这份是只按名次的榜。"""
+    lines = ["# 起点 · 男频书库人气新书", "", "- 来源：https://www.qidian.com/all/action0-size1-update1/",
+             "- 抓取方式：cdp-pc", "- 抓取时间：2026-10-09T03:00:00.000Z", f"- 条目数：{len(books)}",
+             "- 热度：名次即人气排名；作品页的总推荐单列为「新书总推荐」，不进聚合的热度口径",
+             "- 数据质量：[OK]", "- 问题摘要：无", "", "---", ""]
+    for i, (book_id, title, author, genre_name, words) in enumerate(books, 1):
+        lines.append(f"## #{i} {title}")
+        lines.append(f"*{author} · {genre_name} · 连载*")
+        lines += [f"**字数：{words}**", f"**新书总推荐：{2000 + i * 137}**", "**签约：签约作品**", "**收费模式：VIP**",
+                  "**最新更新：** 第32章 夜雨 · 2026-10-09 08:12", f"[作品页](https://www.qidian.com/book/{book_id}/)",
+                  "", "**简介**", "", LIB_DESC, "", "---", ""]
+    return "\n".join(lines)
+
+
+def write_library_fixture(tmp: Path) -> Path:
+    lib = tmp / "library-mix"
+    lib.mkdir()
+    # 七猫：大热榜 30 本带热度（都市 20、玄幻 1、历史 5、仙侠 4）+ 书库前 5 页 75 本只有名次。
+    # 书库 75 本超过带热度书的 2.33 倍：门槛分母若按全平台 104 本算，热度口径会退成「按榜单名次」。
+    rank = [("都市至尊归来", "猫甲", "都市", "都市异能", "13.09万字", "520.0万")]  # 新书冲上大热榜，也在书库第 1 页
+    rank += [(f"都市热书{i}", f"都市作者{i}", "都市", "都市生活", f"{60 + i}.5万字", f"{300 - i * 10}.0万") for i in range(1, 20)]
+    rank += [("万古神帝续", "猫乙", "玄幻", "东方玄幻", "320.0万字", "200.0万")]
+    rank += [(f"历史热书{i}", f"历史作者{i}", "历史", "架空历史", f"{90 + i}.0万字", f"{150 - i * 5}.0万") for i in range(5)]
+    rank += [(f"仙侠热书{i}", f"仙侠作者{i}", "仙侠", "修真文明", f"{110 + i}.0万字", f"{120 - i * 5}.0万") for i in range(4)]
+    (lib / "七猫男生榜大热榜日榜_20261009.md").write_text(qimao_rank("男生榜 · 大热榜日榜", rank), encoding="utf-8")
+    shelf, n = [], 0
+    for page in range(5):  # 每页 15 本：玄幻 9、都市 4、科幻 2
+        for kind, count in (("玄幻", 9), ("都市", 4), ("科幻", 2)):
+            for _ in range(count):
+                n += 1
+                words = f"{n % 25 + 3}.{n % 10}9万字"
+                if kind == "都市" and page == 0 and not any(b[2] == "猫甲" for b in shelf):
+                    shelf.append(("1000000", "都市至尊归来", "猫甲", "都市", "都市异能", words))  # 同时在大热榜
+                else:
+                    sub = {"玄幻": "东方玄幻", "都市": "都市生活", "科幻": "末世危机"}[kind]
+                    shelf.append((str(1000000 + n), f"{kind}书库新书{n}", f"库作者{n}", kind, sub, words))
+    (lib / "七猫全站书库点击新书_20261009.md").write_text(qimao_library(shelf), encoding="utf-8")
+
+    # 起点：月票榜 10 本带总推荐 + 书库 2 页 40 本（总推荐 [待补]）。
+    yuepiao = [(f"起点月票{i}", f"起点作者{i}", "玄幻·东方玄幻" if i < 6 else "都市·都市生活", f"{150 + i}0000",
+                f"{30 - i}.3万", "") for i in range(10)]
+    (lib / "起点月票榜_20261009.md").write_text(qidian("月票榜", yuepiao), encoding="utf-8")
+    qd_shelf = []
+    for i in range(40):
+        main_sub = "玄幻·东方玄幻" if i % 4 < 2 else ("都市·都市生活" if i % 4 == 2 else "仙侠·修真文明")
+        qd_shelf.append((str(2000000 + i), f"起点书库新书{i + 1}", f"起点新人{i + 1}", main_sub, f"{i % 20 + 5}.14万字"))
+    (lib / "起点男频书库人气新书_20261009.md").write_text(qidian_library(qd_shelf), encoding="utf-8")
+    return lib
+
+
+def test_library_sources_keep_platform_metric(lib: Path) -> None:
+    proc = run(LONG, str(lib), "--json")
+    check(proc.returncode == 0, f"library aggregate failed: {proc.stderr}")
+    if proc.returncode != 0:
+        return
+    result = json.loads(proc.stdout)
+
+    qm = platform(result, "七猫")
+    check(qm["bookCount"] == 104, f"library and rank list merge into one platform, same book counted once: {qm['bookCount']}")
+    check(qm["metric"] == "热度",
+          f"75 rank-only library books must not drag the platform metric off 热度: {qm['metric']!r}")
+    check(qm["compareNew"] is True, "a library list named 新书 opens the new-list column")
+    check(genre(qm, "玄幻")["newCount"] == 45 and genre(qm, "科幻")["newCount"] == 10,
+          f"library books land in the new-list column: {[(g['name'], g['newCount']) for g in qm['genres']]}")
+    check({g["name"] for g in qm["genres"]} == {"玄幻", "都市", "历史", "仙侠", "科幻"},
+          f"library main category lines up with the rank list's genre layer: {[g['name'] for g in qm['genres']]}")
+    check("末世危机" in dict(qm["tags"]), "qimao library sub-category becomes a tag")
+    check([o["title"] for o in qm["overlap"]] == ["都市至尊归来"], f"rank list + library overlap: {qm['overlap']}")
+    if qm["metric"] == "热度":
+        xuanhuan = genre(qm, "玄幻")
+        check(xuanhuan["count"] == 46 and xuanhuan["heatKnown"] == 1 and xuanhuan["heatMedian"] is None,
+              f"one valued book out of 46 must not pose as the genre heat median: {xuanhuan}")
+        city = genre(qm, "都市")
+        check(city["heatKnown"] == 20 and city["heatMedian"] == 2050000,
+              f"partial coverage keeps the median of the valued books: {city['heatKnown']} {city['heatMedian']}")
+        check(genre(qm, "历史")["heatMedian"] == 1400000, "fully valued genre median unchanged")
+        check(qm["heat"]["known"] == 30, f"heat distribution counts valued books only: {qm['heat']}")
+        check(qm.get("rankOnlyLists") == ["全站书库点击新书"], f"rank-only lists are named: {qm.get('rankOnlyLists')}")
+    check(genre(qm, "科幻")["reps"][0]["title"] == "科幻书库新书14",
+          f"rank-only books keep library page order: {genre(qm, '科幻')['reps'][0]}")
+
+    qd = platform(result, "起点")
+    check(qd["metric"] == "总推荐", f"40 library books must not drag qidian off 总推荐: {qd['metric']!r}")
+    check(qd.get("rankOnlyLists") == ["男频书库人气新书"],
+          f"「新书总推荐」不是热度行名，起点书库只按名次: {qd.get('rankOnlyLists')}")
+    check(genre(qd, "玄幻")["heatMedian"] == 278000 and genre(qd, "玄幻")["heatKnown"] == 6,
+          f"新书的小总推荐不能把题材热度中位拉低两个数量级: {genre(qd, '玄幻')}")
+    check(qd["compareNew"] is True and sum(g["newCount"] for g in qd["genres"]) == 40,
+          f"qidian library lands in the new-list column: {[(g['name'], g['newCount']) for g in qd['genres']]}")
+    check({g["name"] for g in qd["genres"]} == {"玄幻", "都市", "仙侠"}, f"qidian library main category as genre: {qd['genres']}")
+    check("修真文明" in dict(qd["tags"]), "qidian library sub-category becomes a tag")
+    check(genre(qd, "仙侠")["wordsMedian"] == 161400, f"library 字数 keeps the 万 unit: {genre(qd, '仙侠')['wordsMedian']}")
+
+    for name in ("七猫全站书库点击新书_20261009.md", "起点男频书库人气新书_20261009.md"):
+        f = next((x for x in result["files"] if x["name"] == name), None)
+        check(f is not None and f["quality"] == "[OK]" and f["problems"] == [],
+              f"[OK] library file must not be listed as a problem: {f}")
+
+
+def test_library_markdown_words(lib: Path) -> None:
+    proc = run(LONG, str(lib))
+    check(proc.returncode == 0, f"library markdown failed: {proc.stderr}")
+    text = proc.stdout
+    check("## 七猫（104 本，热度口径：热度）" in text, "platform heading keeps the real metric")
+    check("- 七猫 · 全站书库点击新书：75 条，2026-10-09，正常\n" in text,
+          "[OK] library file reads 正常 with no problem note in 采集情况")
+    check("- 起点 · 男频书库人气新书：40 条，2026-10-09，正常\n" in text, "qidian library reads 正常 in 采集情况")
+    qimao_part = text.split("\n## 七猫（", 1)[1].split("\n## ", 1)[0] if "\n## 七猫（" in text else ""
+    rows = {line.split(" | ")[0].lstrip("| "): line for line in qimao_part.splitlines() if line.startswith("| ")}
+    check("| —（只有 1 本有值） |" in rows.get("玄幻", ""), f"too few valued books: no median, plain note: {rows.get('玄幻')}")
+    check("| 205万（20 本有值） |" in rows.get("都市", ""), f"partial coverage is spelled out: {rows.get('都市')}")
+    check("本有值" not in rows.get("历史", "x"), f"fully valued genre has no note: {rows.get('历史')}")
+    check("没有热度数字的榜（只按名次）：全站书库点击新书" in text, "rank-only lists are named for the author")
+
+
+def test_short_scale_unchanged(scan: Path, tmp: Path) -> None:
+    # 短篇扫榜照旧：点众评分、盐言收藏；黑岩整份没有热度数字，平台退回按榜单名次。
+    short = tmp / "short"
+    short.mkdir()
+    for name in ("点众女频短篇_20260926.md", "黑岩书库列表_female_20260926.md", "知乎盐言热门榜_20260926.md"):
+        shutil.copy(scan / name, short)
+    proc = run(SHORT, str(short), "--scale", "short", "--sparse", "10", "--json")
+    check(proc.returncode == 0, f"short-scale aggregate failed: {proc.stderr}")
+    if proc.returncode != 0:
+        return
+    result = json.loads(proc.stdout)
+    check(all(p["scale"] == "short" for p in result["platforms"]), "--scale short applies to every platform")
+    check(platform(result, "点众")["metric"] == "评分" and platform(result, "知乎盐言")["metric"] == "收藏",
+          "short platforms keep their metric")
+    check(platform(result, "黑岩")["metric"] == "", "no valued list at all still falls back to list rank")
+    check(not platform(result, "黑岩").get("rankOnlyLists"), "no rank-only note when the platform has no metric")
+    md = run(SHORT, str(short), "--scale", "short", "--sparse", "10").stdout
+    check("## 黑岩（2 本，热度口径：无热度字段，按榜单名次）" in md, "fallback heading unchanged")
+    check("没有热度数字的榜" not in md, "rank-only note only shows on platforms with a metric")
+
+
+def qimao_rank_partial(books: list[tuple]) -> str:
+    """大热榜里有些书没取到热度：照 renderMarkdown 在热度位置写 [待补]（heat 传 None）。"""
+    lines = ["# 七猫 · 男生榜 · 大热榜日榜", "", "- 数据质量：[存在问题]", "- 问题摘要：热度缺失",
+             "- 抓取时间：2026-10-09T01:00:00.000Z", "", "---", ""]
+    for i, (title, author, genre_name, heat) in enumerate(books, 1):
+        lines.append(f"### #{i} {title}")
+        lines.append(f"*{author} · {genre_name} · 子类 · 连载中 · 80.0万字 · {heat + '热度' if heat else '[待补]'}*")
+        lines += [f"[作品页](https://www.qimao.com/shuku/8{i:05d}/)", "", "---", ""]
+    return "\n".join(lines)
+
+
+def aggregate_qimao(tmp: Path, name: str, rank: list[tuple], shelf: list[tuple]) -> dict:
+    case = tmp / name
+    case.mkdir()
+    (case / "七猫男生榜大热榜日榜_20261009.md").write_text(qimao_rank_partial(rank), encoding="utf-8")
+    (case / "七猫全站书库点击新书_20261009.md").write_text(qimao_library(shelf), encoding="utf-8")
+    proc = run(LONG, str(case), "--json")
+    check(proc.returncode == 0, f"{name} aggregate failed: {proc.stderr}")
+    return platform(json.loads(proc.stdout), "七猫") if proc.returncode == 0 else {}
+
+
+def test_library_metric_edges(tmp: Path) -> None:
+    """门槛分母、有值本数下限、同书跨榜：三处边界各钉一个数，变成别的口径就会红。"""
+    shelf = [(str(3000000 + i), f"书库新书{i}", f"库作者{i}", "玄幻", "东方玄幻", "12.3万字") for i in range(45)]
+
+    # 分母是「上过带热度数字的榜的书」（30 本），不是「带值的书」（5 本）：门槛 9，5 本不够，退回按名次。
+    rank = [(f"热书{i}", f"作者{i}", "都市", f"{100 + i}.0万" if i < 5 else None) for i in range(30)]
+    qm = aggregate_qimao(tmp, "edge-denominator", rank, shelf)
+    check(qm and not qm.get("metric"), f"30 本热度榜只有 5 本有值，门槛按 30 本算，不能定成热度口径: {qm.get('metric')!r}")
+
+    # 有值本数下限 3：恰好 2 本不报中位，恰好 3 本照报并写明几本有值。
+    rank = [(f"都市热书{i}", f"都市作者{i}", "都市", f"{200 + i}.0万") for i in range(10)]
+    rank += [(f"玄幻热书{i}", f"玄幻作者{i}", "玄幻", f"{150 + i}.0万") for i in range(2)]
+    rank += [(f"仙侠热书{i}", f"仙侠作者{i}", "仙侠", f"{120 + i}.0万") for i in range(3)]
+    xianxia_shelf = [(str(4000000 + i), f"仙侠库书{i}", f"仙侠库{i}", "仙侠", "古典仙侠", "11.0万字") for i in range(5)]
+    qm = aggregate_qimao(tmp, "edge-min-known", rank, shelf[:5] + xianxia_shelf)
+    if qm.get("metric") == "热度":
+        two, three = genre(qm, "玄幻"), genre(qm, "仙侠")
+        check(two["heatKnown"] == 2 and two["heatMedian"] is None, f"恰好 2 本有值不报中位: {two}")
+        check(three["heatKnown"] == 3 and three["heatMedian"] == 1210000, f"恰好 3 本有值照报中位: {three}")
+    else:
+        check(False, f"edge-min-known 应定成热度口径: {qm.get('metric')!r}")
+
+    # 同书跨榜：这本书先在书库（文件名排在前面）出现、后在热度榜出现，仍算进分母。
+    # 热度榜 11 本、3 本有值：分母 11 → 门槛 4，不够；漏算这本 → 分母 10 → 门槛 3，会误定成热度。
+    rank = [("跨榜书", "跨榜作者", "都市", None)] + [(f"热书{i}", f"作者{i}", "都市", f"{100 + i}.0万" if i < 3 else None) for i in range(10)]
+    overlap_shelf = [("5000000", "跨榜书", "跨榜作者", "都市", "都市生活", "13.0万字")] + shelf[:10]
+    qm = aggregate_qimao(tmp, "edge-overlap", rank, overlap_shelf)
+    check(qm and not qm.get("metric"), f"先在书库出现的跨榜书也要算进门槛分母: {qm.get('metric')!r}")
+
+
+def test_manual_missing_author(tmp: Path) -> None:
+    """作者手动整理的盐言榜：元信息按位置认「作者 · 题材」，截图没作者时 manual-rank-input 要求写「佚名」占位。"""
+    case = tmp / "manual-missing-author"
+    case.mkdir()
+    (case / "知乎盐言热门榜_20261017.md").write_text("\n".join([
+        "# 知乎盐言 · 热门榜", "", "- 抓取时间：2026-10-17", "- 数据质量：作者提供", "",
+        "### #1 替嫁后我成了首辅夫人", "*佚名 · 古言 · 已完结 · 12000字 · 2.3万收藏*", "",
+        "### #2 我妈的第二个女儿", "*盐二 · 现实 · 已完结 · 9000字 · 8000收藏*", "",
+    ]), encoding="utf-8")
+    proc = run(SHORT, str(case), "--scale", "short", "--json")
+    check(proc.returncode == 0, f"manual aggregate failed: {proc.stderr}")
+    if proc.returncode != 0:
+        return
+    yy = platform(json.loads(proc.stdout), "知乎盐言")
+    check({g["name"] for g in yy["genres"]} == {"古言", "现实"}, f"「佚名」占位后题材不被当成作者: {yy['genres']}")
+    md = run(SHORT, str(case), "--scale", "short").stdout
+    check("- 知乎盐言 · 热门榜：2 条，2026-10-17，作者提供" in md, "manual header date and source show in 采集情况")
+
+
+def test_same_page_lists_count_once(tmp: Path) -> None:
+    """起点手机版的两个签约榜是同一页：条目逐条相同的两份榜只按一份计，多榜重合不虚高。"""
+    case = tmp / "same-page"
+    case.mkdir()
+    books = [("书甲", "作者甲", "玄幻·东方玄幻", "12.0万字", "3000", ""),
+             ("书乙", "作者乙", "都市·都市生活", "8.0万字", "2000", "")]
+    (case / "起点新人签约新书榜_20261017.md").write_text(qidian("新人签约新书榜", books), encoding="utf-8")
+    (case / "起点签约作者新书榜_20261017.md").write_text(qidian("签约作者新书榜", books), encoding="utf-8")
+    (case / "起点月票榜_20261017.md").write_text(qidian("月票榜", [
+        books[0], ("老书丁", "大神丁", "玄幻·东方玄幻", "320.0万字", "900000", ""),
+    ]), encoding="utf-8")
+    proc = run(LONG, str(case), "--json")
+    check(proc.returncode == 0, f"same-page aggregate failed: {proc.stderr}")
+    if proc.returncode != 0:
+        return
+    result = json.loads(proc.stdout)
+    qd = platform(result, "起点")
+    check(qd["bookCount"] == 3, f"same-page lists still dedupe books: {qd['bookCount']}")
+    check([(o["title"], len(o["lists"])) for o in qd["overlap"]] == [("书甲", 2)],
+          f"同一页的两个签约榜不能把每本书都算成多榜重合: {qd['overlap']}")
+    dup = {f["list"]: f.get("duplicateOf") for f in result["files"]}
+    check(dup.get("签约作者新书榜") == "新人签约新书榜" and not dup.get("新人签约新书榜"),
+          f"后读到的那份标成重复: {dup}")
+    md = run(LONG, str(case)).stdout
+    check("- 起点 · 签约作者新书榜：2 条，2026-09-25，质量未标；和「新人签约新书榜」条目完全相同，是同一份数据，只按一份计" in md,
+          "采集情况说明哪份按重复计")
+
+    # 书名都没解出来的两份榜不能因为都是「（标题待解析）· 未知」就被当成同一份。
+    blank = tmp / "same-page-unresolved"
+    blank.mkdir()
+    for name in ("男频阅读榜", "男频新书榜"):
+        (blank / f"番茄{name}_全题材_20261017.md").write_text(fanqie("男频", name[2:], {
+            "都市日常": [("（标题待解析）", "未知", "未知", "未知", "")] * 2,
+        }, quality="[标题解析异常]"), encoding="utf-8")
+    files = json.loads(run(LONG, str(blank), "--json").stdout)["files"]
+    check(not any(f.get("duplicateOf") for f in files), f"unresolved lists are never merged: {files}")
+
+    # 抽样也只按一份计：重复榜的条目不重复出现、不占 --n 名额。
+    sample = run(LONG, str(case), "--sample", "玄幻", "--n", "5").stdout
+    check(sample.startswith("# 抽样：玄幻（命中 3 条，显示 3 条）"), f"sample skips the duplicate list: {sample[:80]!r}")
+    check(sample.count("## #1 书甲") == 2 and "签约作者新书榜" not in sample,
+          "书甲 appears once per distinct list (新人签约 + 月票), never from the duplicate list")
+
+
+def test_per_genre_cap_noted(tmp: Path) -> None:
+    """番茄逐题材取前 N 本：聚合要注明本数是采样上限，主会话才不会把本数读成题材大小。"""
+    case = tmp / "per-genre-cap"
+    case.mkdir()
+    (case / "番茄男频阅读榜_全题材_20261017.md").write_text(big_fanqie(genre_count=3, per_genre=20), encoding="utf-8")
+    result = json.loads(run(LONG, str(case), "--json").stdout)
+    fq = platform(result, "番茄")
+    check(fq.get("perGenreCap") and fq["perGenreCap"]["top"] == 20, f"cap read from header: {fq.get('perGenreCap')}")
+    md = run(LONG, str(case)).stdout
+    check("- 每题材按上限取前 20 本（男频阅读榜 · 全 3 题材）：本数和占比是采样结果，不代表题材大小" in md,
+          "aggregate notes the per-genre cap")
+    rows = [line for line in md.splitlines() if line.startswith("| 题材0")]
+    check(len(rows) == 3 and all(r.endswith("| 采样 |") for r in rows),
+          f"本数正好等于上限的题材样本列标「采样」，不标「够」: {rows}")
+    few = tmp / "per-genre-cap-few"
+    few.mkdir()
+    (few / "番茄男频阅读榜_全题材_20261017.md").write_text(big_fanqie(genre_count=1, per_genre=5), encoding="utf-8")
+    check("| 题材00 | 5 |" in run(LONG, str(few)).stdout and run(LONG, str(few)).stdout.count("| 少 |") == 1,
+          "capped genre under the threshold is still 「少」")
+    plain = tmp / "no-cap"
+    plain.mkdir()
+    (plain / "起点月票榜_20261017.md").write_text(qidian("月票榜", [("书甲", "作者甲", "玄幻·东方玄幻", "12.0万字", "3000", "")]),
+                                              encoding="utf-8")
+    check(platform(json.loads(run(LONG, str(plain), "--json").stdout), "起点").get("perGenreCap") is None,
+          "lists without a cap header get no cap note")
+
+
+def test_new_list_names(tmp: Path) -> None:
+    """晋江新手金榜是新书榜：和收入金榜一起采时聚合显示「新书榜」列。"""
+    case = tmp / "jj-new"
+    case.mkdir()
+    (case / "晋江收入金榜_全站_20261017.md").write_text(jjwxc(), encoding="utf-8")
+    (case / "晋江新手金榜_全站_20261017.md").write_text(
+        jjwxc().replace("收入金榜", "新手金榜").replace("春日宴", "新芽").replace("月下归", "初雪"), encoding="utf-8")
+    md = run(LONG, str(case)).stdout
+    check("| 题材 | 本数 | 占比 | 新书榜 | 热度中位 |" in md, "晋江新手金榜 counts as a new-book list")
+    jj = platform(json.loads(run(LONG, str(case), "--json").stdout), "晋江")
+    check(jj["compareNew"] and genre(jj, "言情")["newCount"] == 2, f"new-book count per genre: {jj['genres']}")
+
+
+def test_ciweimao_manual_and_sparse(tmp: Path) -> None:
+    """刺猬猫：作者手动整理的「作者 · 题材」按通用位置读；样本门槛默认 10 本，给了 --sparse 就统一用它。"""
+    case = tmp / "cwm-manual"
+    case.mkdir()
+    rows = ["# 刺猬猫 · 月票榜", "", "- 数据质量：作者提供", ""]
+    for i in range(1, 11):
+        rows += [f"### #{i} 书{i}", f"*作者{i} · 同人 · 连载中 · 120万字 · 3.5万收藏*", ""]
+    (case / "刺猬猫月票榜_20261017.md").write_text("\n".join(rows), encoding="utf-8")
+    cw = platform(json.loads(run(LONG, str(case), "--json").stdout), "刺猬猫")
+    check([g["name"] for g in cw["genres"]] == ["同人"], f"hand-made 刺猬猫 rows keep author out of genre: {cw['genres']}")
+    check(cw.get("sparse") == 10 and genre(cw, "同人")["sparse"] is False, f"刺猬猫 defaults to a 10-book threshold: {cw.get('sparse')}")
+    (case / "起点月票榜_20261017.md").write_text(qidian("月票榜", [
+        (f"起点书{i}", f"起作者{i}", "玄幻·东方玄幻", "12.0万字", str(3000 - i), "") for i in range(12)
+    ]), encoding="utf-8")
+    result = json.loads(run(LONG, str(case), "--json").stdout)
+    check(genre(platform(result, "起点"), "玄幻")["sparse"] is True and genre(platform(result, "刺猬猫"), "同人")["sparse"] is False,
+          "multi-platform run: 起点 keeps 15 while 刺猬猫 uses 10")
+    md = run(LONG, str(case)).stdout
+    check("- 样本门槛：同题材少于 15 本（刺猬猫 10 本）标「少」" in md, "header names the 刺猬猫 threshold")
+    forced = json.loads(run(LONG, str(case), "--json", "--sparse", "12").stdout)
+    check(genre(platform(forced, "刺猬猫"), "同人")["sparse"] is True and genre(platform(forced, "起点"), "玄幻")["sparse"] is False,
+          "explicit --sparse applies to every platform")
+
+
 def test_short_copy_identical() -> None:
     check(SHORT.read_bytes() == LONG.read_bytes(), "short-scan copy must stay byte-identical (shared-assets)")
 
@@ -579,6 +930,16 @@ def main() -> int:
         test_fanqie_detail_parsing(tmp)
         test_empty_rank_file_surfaces(tmp)
         test_title_parse_failure_words(tmp)
+        lib = write_library_fixture(tmp)
+        test_library_sources_keep_platform_metric(lib)
+        test_library_markdown_words(lib)
+        test_library_metric_edges(tmp)
+        test_short_scale_unchanged(scan, tmp)
+        test_manual_missing_author(tmp)
+        test_same_page_lists_count_once(tmp)
+        test_per_genre_cap_noted(tmp)
+        test_new_list_names(tmp)
+        test_ciweimao_manual_and_sparse(tmp)
         test_short_copy_identical()
     finally:
         shutil.rmtree(tmp, ignore_errors=True)

@@ -2,7 +2,7 @@
 
 这些是开发本仓库（skill 套件本体）用的**守卫 / 测试 / 代码生成**脚本，**不是** skill 运行时脚本（运行时脚本在各 skill 自己的 `scripts/` 下，如 `story-deslop/scripts/check-ai-patterns.js`，跨 skill 字节同步）。
 
-- 绝大多数由 CI 自动跑（`.github/workflows/cross-platform.yml`）。提交前本地一把梭的完整命令见 [CONTRIBUTING.md](../CONTRIBUTING.md)「CI 检查」。
+- 绝大多数由 CI 自动跑（`.github/workflows/cross-platform.yml`）。提交前完整的本地验证命令见 [CONTRIBUTING.md](../CONTRIBUTING.md)「CI 检查」。
 - **改名 / 移动任一脚本**，要同步改 `.github/workflows/*.yml`、`CONTRIBUTING.md`、本文件，以及调用它的兄弟脚本（见下方「何时跑」里的调用关系）。
 
 `python scripts/test-writer-pipeline.py` 验证长篇取段器与 prompt 组装器的公开 CLI：存量卷纲、作用域、退役历史、原生路径、必需资料与召回降档；在三平台 CI 运行。
@@ -37,7 +37,7 @@
 | `check-codex-adapter.sh` | Codex 适配层：repo skills symlink、agent TOML、hooks 与跨平台 launcher | CI（调 generate-codex-agents.py 验生成确定性） |
 | `test-agent-permissions.py` | 工具白名单、禁止优先、空列表/继承和不支持声明回归；`--opencode` 用真实 OpenCode 2.x + mock 模型验证每个 agent 实际拿到的工具与允许/拒绝执行 | CI；CLI compatibility 跑真实 OpenCode |
 | `check-antigravity-adapter.sh` | Antigravity 2.0 适配层：项目 Skills、生成 Agents、Always-On Rule、named-group Hooks 与行为回归 | CI（调 generator、merge 与 hook tests） |
-| `check-zcode-adapter.sh` | ZCode plugin/marketplace、Skills/Commands/Hooks 与部署锚点 | CI |
+| `check-zcode-adapter.sh` | ZCode plugin/marketplace、Skills/Commands/Agents/Hooks、角色生成一致性与部署锚点 | CI |
 | `check-reasonix-adapter.sh` | Reasonix plugin manifest（schema、13 Skills、版本与 skills/story/VERSION 同步） | CI |
 
 `python scripts/test-style-precedence.py` 验证书级表达豁免在深扫、标点整理、写后和下一章门禁中一致生效，且不跨书、不豁免同一行其他问题或结构错误。
@@ -59,17 +59,19 @@
 | `test-tracking-commit.py` | 单权威追踪行为：原子 state、字数事件链、hash 失效、激活边界、幂等与并发提交 | CI |
 | `test-storyctl.py` | `visible_chars_v1`、双层区间与作者范围、「字数目标」两端解析一致、章节检查状态与去味豁免、提交记录与 demo 同口径证据 | Linux / Windows / macOS CI |
 | `test-chapter-completion-lifecycle.py` | 公开 CLI 的 checkpoint、正常提交、欠长接受、超长单次压缩区间、blocking quality 阻断与下一章继续 | Linux / Windows / macOS CI |
-| `test-author-memory-commit.py` | 工作区作者记忆行为：单事件回执、≤2KB 相关查询、证据候选、冲突替代、撤回、失败零写入、旧修订、幂等重放与派生修复 | CI |
+| `test-author-memory-commit.py` | 工作区作者记忆行为：单事件回执、交写手的行 ≤2KB 且漏项全数列出、证据候选、冲突替代、撤回、失败零写入、旧修订、幂等重放与派生修复 | CI |
 | `test-codex-hooks.sh` | Codex hook 合成 stdin/stdout 契约 | CI |
 | `test-static-check.py` | 真 frontmatter block、精确路径/锚点、跨 Skill 引用、fence、死 reference、Agent 与章节链接 fixture | CI |
 | `test-current-skill-contracts.py` | current-contract manifest 类型/固定值与主产物 fail-fast 语义 fixture | CI |
+| `test-handoff-contracts.py` | 拆文/扫榜产物与下游读取方的交接契约：拆文报告小节、黄金三章深度拆解字段、情绪模块卡门禁字段、节奏表列名、短篇节点字段、题材取值与 `_meta.json` 键、扫榜目标平台；导入卷纲与短篇设定过写作端的取段器和构思检查、写作端平台到审稿平台表、派助手的 prompt 字段、去味检测类别索引与写手任务标签；含反向自检（故意改坏输入必须报错） | CI |
 | `test-plugin-packaging.py` | 执行公开 packaging CLI，在临时仓库中变异 catalog/manifest/版本/组件过滤并断言结构化失败 | CI |
+| `test-zcode-agents.py` | ZCode 插件角色的工具白名单、禁止优先、模型继承、资料路径、无效输入零写入、生成漂移与七个调用侧的冷路径契约 | CI（由 check-zcode-adapter 调用） |
 | `test-claude-plugin-lifecycle.py` | 隔离 HOME 后用真实 Claude CLI 演练 13 个旧身份迁移为单 bundle、更新/卸载及无关插件保留 | `CLAUDE_REAL_CHECK=1`，由 `check-claude-adapter.sh` 调用 |
 | `test-shared-assets.py` | 共享资产 manifest 的 drift、sync、路径越界、basename 单一 owner 与未登记重复检测 | CI |
 | `test-shared-references.py` | reference manifest 的别名、目录组、drift/sync、未登记副本与 Agent 消费链回归 | CI |
 | `test-normalize-punctuation.js` | 标点归一化的只读检查、frontmatter/fence、CRLF、引号模式与幂等性 | CI |
-| `test-scan-runtime.js` | CDP argv 边界/报错/JSON 契约与 7 个 scraper 无副作用 import | CI |
-| `test-scan-aggregate.py` | 扫榜聚合 `aggregate-rank.js`：七个平台采集格式与手动榜单的题材/热度口径/字数分桶/标签解析、同书跨榜去重、采集问题上浮、样本不足标注、抽样取回原文、跳过非榜单文件、700 条级输入压到五分之一以下 | Linux / Windows / macOS CI |
+| `test-scan-runtime.js` | CDP argv 边界/报错/JSON 契约与 7 个 scraper 无副作用 import；七猫、起点书库翻页（名次跨页、去重、空页停止、部分失败、参数校验）与起点反爬字体解码 | CI |
+| `test-scan-aggregate.py` | 扫榜聚合 `aggregate-rank.js`：七个平台采集格式与手动榜单的题材/热度口径/字数分桶/标签解析、同书跨榜去重、采集问题上浮、样本不足标注、抽样取回原文、跳过非榜单文件、700 条级输入压到五分之一以下、没有热度的书库新书不拖掉平台热度口径 | Linux / Windows / macOS CI |
 | `test-scan-runtime-policy.py` | 变异验证 scan/browser 静态策略不会被无关或死代码关键词骗过 | CI；改 `check-scan-runtime-policy.sh` 后 |
 | `test-opencode-plugin.mjs` | 以 2.x `setup(ctx)` 直接执行 OpenCode TypeScript plugin，验大纲守卫、Shell 绕过、写后检查、compaction 注入与 `ctx.location` 定位 | 被 `check-opencode-adapter.sh` 调用 |
 | `test-codex-cli-e2e.sh` | 隔离 HOME 后用真实 Codex CLI 检查 repo 13 个 skill 的发现结果 | CLI compatibility CI；需已安装 `codex` |
@@ -91,6 +93,7 @@
 |---|---|---|
 | `sync-opencode.py` | 从 Claude agent 模板 + `CLAUDE.md.tmpl` 生成 `opencode/agents/` 与 `AGENTS.md.tmpl`；`--check` 只读验同步 | 改 agent 模板后手动跑；sync CI + 被 check-opencode-adapter 调 |
 | `generate-codex-agents.py` | 从 Claude agent 模板生成 Codex `.toml` agents | 改 agent 模板后手动跑；被 check-codex-adapter 调验确定性 |
+| `generate-zcode-agents.py` | 从 Claude agent 模板生成 ZCode 插件 Markdown agents；继承模型、保留工具白名单，不移植 inline hooks；`--check` 只读验同步 | 改 agent 模板后；被 check-zcode-adapter 调用 |
 | `generate-codex-hooks.py` | 从 6 个 event 清单生成 `hooks.json`，POSIX/Windows 共用 launcher 负责解释器探测 | 改 Codex hook 注册后；被 check-codex-adapter 调验确定性 |
 | `skills/story-setup/scripts/generate-antigravity-agents.mjs` | 从 Claude agent 真源生成 Antigravity `.agents/agents/agent-name/agent.md`（`agent-name` 为实际名称），转换官方工具名、模型档、reference root 与调用术语 | story-setup 部署时 + 被 check-antigravity-adapter 调验 |
 | `skills/story-setup/scripts/merge-antigravity-hooks.py` | 原子替换 `.agents/hooks.json` 的 `oh-story` named group，保留所有用户 groups | story-setup 部署时 + merge 回归 |
@@ -98,7 +101,7 @@
 | `shared-assets.json` + `sync-shared-assets.py` | 为必须随 skill 独立部署的重复 runtime 脚本指定唯一源和目标 | 改共享 runtime 后跑 `sync`；CI 跑 `check` |
 | `shared-references.json` + `shared-references.py` | 为自包含 Skill 的重复 reference 指定 canonical source、语义别名 target 与完整目录镜像；`derived_groups` 登记仍需独立演化的近似派生文件 | 改共享 reference 后跑 `sync`；CI 跑 `check` |
 
-> 改了 `skills/story-setup/references/templates/agents/*.md` 或 `CLAUDE.md.tmpl`，必须重跑这两个生成脚本并提交结果，否则适配层 CI 红。详见 [CONTRIBUTING.md](../CONTRIBUTING.md)「OpenCode 模板同步」「Codex 适配维护」。
+> 改了 `skills/story-setup/references/templates/agents/*.md` 或 `CLAUDE.md.tmpl`，必须重跑相关宿主的生成脚本并提交结果，否则适配层 CI 红。详见 [CONTRIBUTING.md](../CONTRIBUTING.md)「OpenCode 模板同步」「Codex 适配维护」「ZCode 适配维护」。
 
 ## 工作流编号维护
 

@@ -8,6 +8,7 @@ cd "$REPO_ROOT"
 
 fail() { echo "FAIL: $*" >&2; exit 1; }
 assert_file() { [ -f "$1" ] || fail "required file missing: $1"; }
+assert_dir() { [ -d "$1" ] || fail "required directory missing: $1"; }
 assert_grep() { grep -Eq "$1" "$2" || fail "$3 ($2)"; }
 
 ROOT="skills/story-setup/references/zcode"
@@ -25,9 +26,12 @@ for file in \
   "$ROOT/config.json.patch" \
   "$ROOT/hooks/hooks.json" \
   "$HOOK" \
-  "$HOOK_CORE"; do
+  "$HOOK_CORE" \
+  scripts/generate-zcode-agents.py \
+  scripts/test-zcode-agents.py; do
   assert_file "$file"
 done
+assert_dir "$ROOT/agents"
 
 for file in .zcode-plugin/plugin.json marketplace.json "$ROOT/config.json.patch" "$ROOT/hooks/hooks.json"; do
   python3 -m json.tool "$file" >/dev/null
@@ -42,8 +46,9 @@ from pathlib import Path
 
 plugin = json.loads(Path('.zcode-plugin/plugin.json').read_text())
 assert plugin['commands'] == 'skills/story-setup/references/zcode/commands'
+assert plugin['agents'] == 'skills/story-setup/references/zcode/agents'
 assert plugin['hooks'] == 'skills/story-setup/references/zcode/hooks/hooks.json'
-for key in ('agents', 'channels', 'lspServers', 'outputStyles', 'settings'):
+for key in ('channels', 'lspServers', 'outputStyles', 'settings'):
     assert key not in plugin, f'non-runnable ZCode component declared: {key}'
 
 market = json.loads(Path('marketplace.json').read_text())
@@ -84,6 +89,49 @@ for command in commands:
     assert '$ARGUMENTS' in body
 PY
 echo "  OK Skills + Commands (schema and one-to-one names; skill set pinned by check-plugin-packaging.py)"
+
+python3 scripts/generate-zcode-agents.py --check
+python3 scripts/test-zcode-agents.py
+python3 - <<'PY'
+import importlib.util
+from pathlib import Path
+
+root = Path('skills/story-setup/references/zcode/agents')
+expected = {
+    'chapter-extractor', 'character-designer', 'consistency-checker',
+    'narrative-writer', 'story-architect', 'story-explorer', 'story-researcher',
+}
+files = sorted(root.glob('*.md'))
+assert {path.stem for path in files} == expected
+
+generator_path = Path('scripts/generate-zcode-agents.py')
+spec = importlib.util.spec_from_file_location('zcode_agent_generator_check', generator_path)
+assert spec and spec.loader
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+
+allowed = {'name', 'description', 'model', 'tools', 'disallowedTools', 'maxTurns'}
+for path in files:
+    meta, body = module.parse_frontmatter(path.read_text(encoding='utf-8'))
+    assert set(meta) <= allowed, (path, set(meta) - allowed)
+    assert {'name', 'description', 'model', 'tools', 'maxTurns'} <= set(meta), path
+    assert meta['name'] == path.stem
+    assert meta['model'] == 'inherit'
+    assert module.parse_tool_list(meta['tools'], 'tools'), path
+    assert 'hooks' not in meta
+    assert '.claude/skills/' not in body and '当前 Claude 部署' not in body
+    assert 'Agent(subagent_type' not in body
+
+for name in ('consistency-checker', 'story-explorer'):
+    meta, _ = module.parse_frontmatter((root / f'{name}.md').read_text(encoding='utf-8'))
+    assert module.parse_tool_list(meta['tools'], 'tools') == {'Read', 'Glob', 'Grep'}
+    assert module.parse_tool_list(meta['disallowedTools'], 'disallowedTools') == {'Write', 'Edit', 'Bash'}
+
+chapter = (root / 'chapter-extractor.md').read_text(encoding='utf-8')
+assert '不提供 Claude inline hook 的 per-agent 写入强隔离' in chapter
+assert '只能 Write/Edit 调用方指定的单个' in chapter
+PY
+echo "  OK plugin Agents (7 generated roles; bounded tools; no Claude-only inline hooks)"
 
 python3 - <<'PY'
 import json
@@ -151,11 +199,9 @@ echo "  OK supported events + strict process-hook shape"
 if grep -RqsE 'PreCompact|PostCompact|SessionEnd|SubagentStop|Notification' "$ROOT/hooks" "$ROOT/config.json.patch"; then
   fail "ZCode adapter contains unsupported hook events"
 fi
-[ ! -e "$ROOT/agents" ] || fail "ZCode 3.3.4 must not ship project agents"
 [ ! -e "$ROOT/rules" ] || fail "ZCode has no .zcode/rules discovery surface"
 
 assert_grep '\$story-long-write|\$story-setup' "$ROOT/AGENTS.md.tmpl" 'ZCode AGENTS template must document $skill invocation'
-assert_grep 'project custom agents unavailable.*solo|不执行项目.*custom agents' "$ROOT/AGENTS.md.tmpl" "ZCode AGENTS template must document solo fallback"
 assert_grep 'target_cli = zcode|target_cli.*zcode' skills/story-setup/SKILL.md "story-setup must document zcode target_cli"
 assert_grep 'references/deploy-zcode\.md' skills/story-setup/SKILL.md "story-setup entry must route zcode to its deploy file"
 assert_grep 'references/zcode/config\.json\.patch' skills/story-setup/references/deploy-zcode.md "story-setup manifest missing ZCode config patch"
@@ -163,10 +209,21 @@ assert_grep 'references/zcode/config\.json\.patch' skills/story-setup/references
 # 部署算法必须记录二者互斥（装插件则跳过 config hooks 合并），否则 PreToolUse/PostToolUse 双触发。
 assert_grep 'hooks 互斥' skills/story-setup/references/deploy-zcode.md "story-setup must document the plugin/workspace hooks mutex (skip config hooks merge when plugin installed, avoid double-firing)"
 assert_grep '\.zcode/skills/story-setup/references/agent-references' skills/story-setup/references/deploy-zcode.md "story-setup missing ZCode reference path"
+assert_grep '更新后的插件副本' skills/story-setup/references/deploy-zcode.md "ZCode upgrade must choose the updated plugin setup, not its workspace snapshot"
+assert_grep '更新后的插件副本' skills/story-setup/UPGRADING.md "ZCode upgrade guide must explain the setup source priority"
 
-for skill in story-long-write story-short-write story-long-analyze story-import story-deslop story-review; do
-  assert_grep 'ZCode 3\.3\.4|\.zcode/' "skills/$skill/SKILL.md" "$skill must document ZCode fallback"
-done
+python3 - <<'PY'
+from pathlib import Path
+
+# Markdown 就是运行契约：防旧宿主版本判断再次绕过实际插件注册状态。
+for skill in ('story', 'story-long-write', 'story-short-write', 'story-long-analyze', 'story-import', 'story-deslop', 'story-review'):
+    path = Path('skills') / skill / 'SKILL.md'
+    text = path.read_text(encoding='utf-8')
+    assert 'ZCode' in text and '插件' in text and '注册' in text, path
+    assert 'ZCode 3.3.4' not in text, f'{path}: stale fixed-version solo routing'
+deep = Path('skills/story-import/references/deep-analysis.md').read_text(encoding='utf-8')
+assert '（或 ZCode）' not in deep, 'import must not override capability detection with host-based solo'
+PY
 
 echo "  OK deployment instructions + explicit capability boundaries"
 echo ""

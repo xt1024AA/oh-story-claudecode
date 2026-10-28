@@ -16,12 +16,8 @@ CHECKER = REPO_ROOT / "scripts" / "check-doc-budget.sh"
 
 
 class DocBudgetCliTests(unittest.TestCase):
-    def run_checker(
-        self,
-        files: dict[str, str],
-        manifest: dict,
-        write_newline: str | None = None,
-    ) -> subprocess.CompletedProcess[str]:
+    def run_checker(self, files: dict[str, str], manifest: dict,
+                    write_newline: str | None = None) -> subprocess.CompletedProcess[str]:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             for relative, content in files.items():

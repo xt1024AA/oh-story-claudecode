@@ -58,22 +58,37 @@ run_opencode service set port "$SERVICE_PORT" >/dev/null
 (cd "$CLI_HOME" && run_opencode api GET /api/info >/dev/null)
 
 # GET 一个 location 作用域的列表接口，等到 data 非空（location 插件异步就绪，首个请求可能为空）。
+# OpenCode 2.x 异步加载技能、插件和命令：第一次非空的返回可能只有内置项，仓库里的还没进来
+# （CI 上同一版本时过时不过）。所以要一直等到 $3 列出的 id/name（逗号分隔）全部出现；
+# 30 秒还没齐就把最后一次结果交给后面的核对，由它报出具体缺了哪些。
 api_list() {
-  local directory="$1" out="$2"; shift 2
+  local directory="$1" out="$2" require="$3"; shift 3
   local attempt
   for attempt in $(seq 1 30); do
     if run_opencode api "$@" -H "x-opencode-directory:$directory" >"$out" 2>"$out.err" &&
-      python3 -c 'import json,sys; sys.exit(0 if json.load(open(sys.argv[1])).get("data") else 1)' "$out" 2>/dev/null; then
+      python3 -c '
+import json, sys
+data = json.load(open(sys.argv[1])).get("data")
+items = [item for item in data or [] if isinstance(item, dict)]
+have = {item.get("id") for item in items} | {item.get("name") for item in items}
+need = {name for name in sys.argv[2].split(",") if name}
+sys.exit(0 if items and need <= have else 1)
+' "$out" "$require" 2>/dev/null; then
       return 0
     fi
     sleep 1
   done
+  if python3 -c 'import json,sys; sys.exit(0 if json.load(open(sys.argv[1])).get("data") else 1)' "$out" 2>/dev/null; then
+    return 0
+  fi
   cat "$out" "$out.err" >&2 || true
   fail "OpenCode API returned no data: $*"
 }
 
+STORY_SKILLS="browser-cdp,story,story-cover,story-deslop,story-import,story-long-analyze,story-long-scan,story-long-write,story-review,story-setup,story-short-analyze,story-short-scan,story-short-write"
+
 echo "  Checking repo-local skill discovery"
-api_list "$REPO_ROOT" "$TMP_ROOT/repo-skills.json" GET /api/skill
+api_list "$REPO_ROOT" "$TMP_ROOT/repo-skills.json" "$STORY_SKILLS" GET /api/skill
 python3 - "$TMP_ROOT/repo-skills.json" "$REPO_ROOT" <<'PY'
 import json
 import sys
@@ -128,8 +143,8 @@ cp -R "$REPO_ROOT/skills/story-setup/references/agent-references" \
 git -C "$PROJECT" init -q
 
 echo "  Checking deployed project plugin/commands/agents"
-api_list "$PROJECT" "$TMP_ROOT/plugins.json" plugin.list
-api_list "$PROJECT" "$TMP_ROOT/commands.json" GET /api/command
+api_list "$PROJECT" "$TMP_ROOT/plugins.json" "oh-story.story-hooks" plugin.list
+api_list "$PROJECT" "$TMP_ROOT/commands.json" "$STORY_SKILLS" GET /api/command
 (cd "$PROJECT" && run_opencode debug agents >"$TMP_ROOT/agents.json")
 python3 - "$TMP_ROOT" <<'PY'
 import json

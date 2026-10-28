@@ -4,13 +4,29 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { execFileSync } from "node:child_process";
+import childProcess, { execFileSync } from "node:child_process";
+import { createRequire, syncBuiltinESMExports } from "node:module";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const srcDir = path.join(repoRoot, "skills/story-setup/references/opencode");
 const tmp = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "story-opencode-plugin-")));
 const originalCwd = process.cwd();
+const originalExecSync = childProcess.execSync;
+const originalSpawnSync = childProcess.spawnSync;
+const childProcessCalls = [];
+
+// 用真实 child_process 调用的薄代理记录 options：这会覆盖插件和共享核实际解构到的
+// execSync/spawnSync，能验证运行时参数，而不是只扫源码里有没有 windowsHide 字样。
+childProcess.execSync = (command, options) => {
+  childProcessCalls.push({ method: "execSync", command, options });
+  return originalExecSync(command, options);
+};
+childProcess.spawnSync = (command, args, options) => {
+  childProcessCalls.push({ method: "spawnSync", command, args, options });
+  return originalSpawnSync(command, args, options);
+};
+syncBuiltinESMExports();
 
 // plugin.ts imports "./lib/story_hook_core.js"（与 ZCode 共享的 prose-guard 核，部署到
 // .opencode/plugins/lib/）。仓库源码里核是平铺的，只有部署布局才有 lib/ 子目录；在 tmp 里
@@ -299,8 +315,45 @@ try {
   await hooks.session.compaction(compact);
   assert(compact.system.some((part) => part.type === "text" && part.text.includes("Writing context: book/追踪/上下文.md")));
 
+  // 共享核 staged commit 检查也会拉 git。直接调用已部署布局中的真实模块，代理只记录并
+  // 转发，确保断言命中 stagedMarkdownWarnings() 实际传给 spawnSync 的 options。
+  const require = createRequire(import.meta.url);
+  const core = require(path.join(deployDir, "lib", "story_hook_core.js"));
+  core.stagedMarkdownWarnings(tmp);
+
+  const projectRootCalls = childProcessCalls.filter(
+    (call) => call.method === "execSync" && call.command === "git rev-parse --show-toplevel"
+  );
+  assert(projectRootCalls.length > 0, "projectRoot() must exercise execSync");
+  assert(
+    projectRootCalls.every((call) => call.options?.windowsHide === true),
+    "projectRoot() must hide the git console window on Windows"
+  );
+
+  const tryGitCalls = childProcessCalls.filter(
+    (call) => call.method === "execSync" && /^git diff --name-only(?: --cached)?$/.test(call.command)
+  );
+  assert.equal(tryGitCalls.length, 2, "preCompactOutput() must exercise both tryGit() calls");
+  assert(
+    tryGitCalls.every((call) => call.options?.windowsHide === true),
+    "tryGit() must hide the git console window on Windows"
+  );
+
+  const stagedWarningCalls = childProcessCalls.filter(
+    (call) => call.method === "spawnSync" && call.command === "git" && call.args?.includes("--cached")
+  );
+  assert.equal(stagedWarningCalls.length, 1, "stagedMarkdownWarnings() must exercise spawnSync once");
+  assert.equal(
+    stagedWarningCalls[0].options?.windowsHide,
+    true,
+    "stagedMarkdownWarnings() must hide the git console window on Windows"
+  );
+
   console.log("OK: OpenCode plugin guards outlines and reports after-write findings behaviorally");
 } finally {
+  childProcess.execSync = originalExecSync;
+  childProcess.spawnSync = originalSpawnSync;
+  syncBuiltinESMExports();
   process.chdir(originalCwd);
   fs.rmSync(tmp, { recursive: true, force: true });
 }
