@@ -2,7 +2,7 @@
 
 [English](hosts_EN.md)
 
-Oh Story 支持 8 款编程 Agent。本页是各 Agent 的部署细节、已知限制和安装排查；
+Oh Story 为 7 款编程 Agent 提供部署适配，另支持 Web AI / 通用文件模式。本页说明各宿主的部署条件、限制与安装排查；
 日常使用只需 README 的[安装](../README.md#安装)一节。
 
 ## 安装排查：Windows 报错、环境检查、marketplace 路径
@@ -36,7 +36,7 @@ repo 内直接使用：Codex 会扫描 `$REPO_ROOT/.agents/skills`（指向 `ski
 
 ## ZCode
 
-在 Plugin Management 中添加本仓库，安装 `oh-story`，即可调用全部 13 个 Skills/Commands。市场名可能显示 `oh-story-zcode`（根 catalog）或 `oh-story-skills`（Claude catalog）；选择其中一个即可，内容相同。旧版多条目安装按[升级指南](../skills/story-setup/UPGRADING.md#插件打包身份迁移v079-同版本修复)迁移。`$story-setup` 选择 `target_cli=zcode` 会部署 `.zcode/skills/`、`.zcode/commands/`、`.zcode/hooks/story_zcode_hook.js`，安全合并 `.zcode/config.json` 与根 `AGENTS.md`；Hook 依赖 PATH 中的 `node`。ZCode 3.3.4 不执行项目/plugin custom agents，也没有 `PreCompact` / `SessionEnd`，相关流程会明确降级 solo/direct，compact 后由 `SessionStart` 恢复上下文。插件格式见 [ZCode 官方文档](https://zcode.z.ai/en/docs/plugin)。
+在 Plugin Management 中添加本仓库，安装 `oh-story`，即可调用全部 13 个 Skills/Commands。市场名可能显示 `oh-story-zcode`（根 catalog）或 `oh-story-skills`（Claude catalog）；选择其中一个即可，内容相同。旧版多条目安装按[升级指南](../skills/story-setup/UPGRADING.md#插件打包身份迁移v079-同版本修复)迁移。`$story-setup` 选择 `target_cli=zcode` 会部署 `.zcode/skills/`、`.zcode/commands/`、`.zcode/hooks/story_zcode_hook.js`，安全合并 `.zcode/config.json` 与根 `AGENTS.md`；Hook 依赖 PATH 中的 `node`。当前 ZCode 支持插件子代理；oh-story 插件注册 7 个专业角色，按当前 `Agent` 工具派发，只有角色或工具不可用时才降级。独立安装 Skills 不会注册这些角色，需启用插件；不创建 `.zcode/agents/` 或写入用户 home。升级插件后重新运行 `$story-setup` 更新项目快照和旧 AGENTS 指令，再新开会话。现有 Hook 适配不注册 `PreCompact` / `SessionEnd`，compact 后由 `SessionStart` 恢复上下文。见 [ZCode 插件](https://zcode.z.ai/en/docs/plugin)与[子代理文档](https://zcode.z.ai/en/docs/subagents)。
 
 ## OpenCode
 
@@ -60,6 +60,8 @@ repo 内直接使用：Codex 会扫描 `$REPO_ROOT/.agents/skills`（指向 `ski
 
 **多 agent 协作要先部署再新开会话：** 7 个专业 agent（story-architect、narrative-writer、consistency-checker 等）由 `/story-setup` 写入项目 `.claude/agents/`，由 `$story-setup` 写入 `.codex/agents/*.toml`，或由 Antigravity `story-setup` 生成 `.agents/agents/agent-name/agent.md`（`agent-name` 替换为实际名称）。Antigravity 使用 `invoke_subagent` + 同名 `TypeName`；运行时未暴露 custom subagent 时按 skill 明确降级 solo/direct。判断是否生效：新会话里跑 `/story-review`，报告开头「这次怎么审的」写着几个视角（完整审或精简审）即注册成功；写着「我一个人审」说明还在旧会话，或当前运行时未暴露该 agent。
 
-**导入续写顺序：** 推荐先在写作项目根运行 `/story-setup`（部署 hooks/agents/AGENTS），新开/刷新会话后运行 `/story-import` 导入已有小说，再用 `/story-long-write 日更` 或 `/story-long-write 写第N章` 续写。也可以直接运行 `/story-import`；它会先检测是否已 setup，未部署时让你选择先去 setup 或继续串行导入。
+**导入续写顺序：** 推荐先在写作项目根运行 `/story-setup`（部署 hooks/agents/AGENTS），新开/刷新会话后运行 `/story-import` 导入已有小说，再用 `/story-long-write 写第N章` 续写（N 是导入后的下一章，会先补这一章的细纲）。也可以直接运行 `/story-import`；它会先检测是否已 setup，未部署时让你选择先去 setup 或继续串行导入。
 
-**作者习惯会跨会话延续：** 对 `/story` 说“记住我的写作习惯”（部署后的项目里直接说「记住：……」也会走这里，不进编程工具自带的记忆）。作者记忆分两级：全局、题材、流程类偏好进工作区 `.story/作者记忆/`（编号 `AP`），只属于某本书的偏好进该书目录下的 `.story/作者记忆/`（编号 `BP`），随书归档、迁移；看到 `Author Memory Receipt` 才算写入成功。普通写作只查询本次相关的已确认条目，输出硬上限 2KB，不把完整画像、候选和历史塞进正文 prompt。它与每本书的剧情追踪分开，当前要求、本书设定和硬性门禁始终优先。
+**作者习惯由写作流程管理：** `story-long-write` 与 `story-short-write` 负责记录、确认、整理和按需查询作者记忆。可以直接向写作 skill 提要求，也可以对 `/story` 说“记住我的写作习惯”，由它路由到对应写作 skill；部署后的项目里直接说「记住：……」同样走写作流程，不进编程工具自带的记忆。去 AI 味与审查沿用写作流程传入的文风要求。
+
+作者记忆分两级：全局、题材、流程类偏好进工作区 `.story/作者记忆/`（编号 `AP`），只属于某本书的偏好进该书目录下的 `.story/作者记忆/`（编号 `BP`），随书归档、迁移；看到 `Author Memory Receipt` 才算写入成功。普通写作只查询本次相关的已确认条目，交给写手的习惯原文每次查询不超过 2KB，装不下的会在章末汇报里用原话告诉作者；不把完整画像、候选和历史塞进正文 prompt。它与每本书的剧情追踪分开，当前要求、本书设定和硬性门禁始终优先。

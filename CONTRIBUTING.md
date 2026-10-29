@@ -79,6 +79,7 @@ PR 自动运行 `.github/workflows/cross-platform.yml`。static-check job 跑以
 - `python3 scripts/check-author-reports.py` — `<!-- author-report -->` 标记的作者报告模板不含脚本名、字段名、flag、严重度代号等工程黑话（`--self-test` 为其正反例回归）
 - `scripts/check-current-skill-contracts.sh` — 按 `scripts/current-contract.json` 校验当前版本 / Phase / schema / 主产物 / 细纲契约，并拦截历史路径与静默兼容分支
 - `python3 scripts/test-current-skill-contracts.py` — current-contract manifest 与主产物 fail-fast 语义回归
+- `python3 scripts/test-handoff-contracts.py` — 跨 skill 交接契约（拆文、扫榜、导入产物到写作端，写作端平台到审稿，派助手与派写手去味的字段和标签）：小节、字段、列名、平台取值，含反向自检
 - `scripts/check-doc-budget.sh` — 热路径 SKILL/references/agent 模板的字数预算（按 `scripts/doc-budget.json`），防每次会话都要付的规则文本无声膨胀
 - `scripts/check-hook-regex-sync.sh` — hook 伏笔状态检测行为
 - `scripts/check-shared-files.sh` — 共享 runtime 资产清单 + 跨 skill reference 副本一致性
@@ -115,6 +116,7 @@ python3 scripts/skill-numbering.py check
 bash scripts/test-skill-numbering.sh
 bash scripts/check-current-skill-contracts.sh
 python3 scripts/test-current-skill-contracts.py
+python3 scripts/test-handoff-contracts.py
 bash scripts/check-doc-budget.sh
 bash scripts/check-hook-regex-sync.sh
 bash scripts/check-shared-files.sh
@@ -176,7 +178,7 @@ python3 scripts/skill-numbering.py check
 
 ## 共享文件规范
 
-部分文件跨 skill 共享（如 banned-words.md、anti-ai-writing.md），修改时必须同步所有副本。
+部分文件跨 skill 共享（如 banned-words.md、expression.md），修改时必须同步所有副本。
 
 - runtime 脚本的唯一源/目标定义在 `scripts/shared-assets.json`；先改 `source`，再运行 `python3 scripts/sync-shared-assets.py sync`。
 - 同名 runtime 脚本只能属于一个 canonical group，且每个 target 必须保留 source basename；禁止用改名 target 绕过单一 owner。
@@ -304,7 +306,7 @@ PR 中如果修改了 Claude Code 模板文件，CI 会自动检测 opencode 模
 
 - **agent-references** 部署到 `skills/story-setup/references/agent-references/`（非隐藏），而非 `.opencode/skills/`
 - **agent 文件** 双份部署：`.opencode/agents/`（opencode 系统使用）+ `agents/`（Glob 可见副本）
-- **subagent 检测**：所有 spawn agent 的 skill（story-review、story-long-write、story-deslop、story-import、story-long-analyze、story-short-write）只检查当前运行时的 canonical 目录：Claude `.claude/agents/`、OpenCode `.opencode/agents/`、Codex `.codex/agents/`、Antigravity `.agents/agents/`；不得因其他端文件存在而误判。ZCode 3.3.4 与 OpenClaw Phase 1 不部署项目 agents，走 solo/direct fallback。
+- **subagent 检测**：所有 spawn agent 的 skill（story、story-review、story-long-write、story-deslop、story-import、story-long-analyze、story-short-write）只检查当前运行时的 canonical 目录：Claude `.claude/agents/`、OpenCode `.opencode/agents/`、Codex `.codex/agents/`、Antigravity `.agents/agents/`；不得因其他端文件存在而误判。ZCode 从已启用插件的运行时注册检查同名角色，不要求 `.zcode/agents/`；仅角色或工具不可用才降级。OpenClaw Phase 1 不部署项目 agents，走 solo/direct fallback。
 
 **插件在后台服务里运行**：2.x 由一个后台服务进程服务多个项目，插件里的 `process.cwd()` 不是用户项目；项目根与相对路径起点一律取 `ctx.location.directory`（其 git toplevel）。压缩前注入用 `ctx.session.hook("compaction")` 往摘要请求的 `system` 追加写作上下文位置。
 
@@ -368,15 +370,17 @@ node scripts/test-antigravity-hooks.mjs
 
 ZCode 采用「原生 plugin + `story-setup` workspace 部署」双入口：
 
-- `.zcode-plugin/plugin.json` 与根 `marketplace.json` 以同名同版本的单一 `oh-story` bundle 暴露 13 Skills、13 Commands 和 ZCode Hooks；catalog 自身名保持 `oh-story-zcode`，条目的插件版本必须与 `skills/story/VERSION` 同步。
-- `skills/story-setup/references/zcode/` 是 workspace 部署模板，包含 `AGENTS.md.tmpl`、Commands、`config.json.patch` 与无第三方依赖的 Node Hook runner。
+- `.zcode-plugin/plugin.json` 与根 `marketplace.json` 以同名同版本的单一 `oh-story` bundle 暴露 13 Skills、13 Commands、7 个插件角色和 ZCode Hooks；catalog 自身名保持 `oh-story-zcode`，条目的插件版本必须与 `skills/story/VERSION` 同步。
+- `skills/story-setup/references/zcode/` 是 workspace 部署模板，包含 `AGENTS.md.tmpl`、Commands、生成的插件 Agents、`config.json.patch` 与无第三方依赖的 Node Hook runner。
 - ZCode 3.3.4 只支持 `SessionStart`、`UserPromptSubmit`、`PreToolUse`、`PermissionRequest`、`PostToolUse`、`PostToolUseFailure`、`Stop`。不要复制 Claude 的 `PreCompact`、`PostCompact`、`SessionEnd`、`SubagentStop` 或 `Notification`。
 - Hook stdout 为空表示放行；只要非空就必须满足严格 JSON schema。诊断只写 stderr，异常 fail-open；优先使用 `process` + `node`，不要引入 shell/Python launcher 的跨平台分支。
-- 3.3.4 不执行项目级或 plugin custom agents，也不发现 `.zcode/rules`。不要生成 `.zcode/agents/` / `.zcode/rules/` 或默认写入用户 home；涉及专业 Agent 的 Skill 必须明确报告 solo/direct fallback。
+- 当前 ZCode 支持插件子代理，`.zcode-plugin/plugin.json` 的 `agents` 指向 `references/zcode/agents/`；用 `python3 scripts/generate-zcode-agents.py` 从 Claude 真源生成并提交，检查脚本验证生成一致性与权限回归。模型继承当前会话，保留工具白名单与禁止工具；不照搬 Claude inline hooks，拆文角色的路径范围仍是提示约束，不宣称强隔离。官方依据：[Plugin](https://zcode.z.ai/en/docs/plugin)、[Subagents](https://zcode.z.ai/en/docs/subagents)。
+- 不生成 `.zcode/agents/` / `.zcode/rules/` 或写入用户 home。Skills-only 安装不注册插件角色；提示启用/更新插件，而不是固定 solo 或反复部署项目。
 
 ### ZCode 检查步骤
 
 ```bash
+python3 scripts/generate-zcode-agents.py --check
 bash scripts/check-zcode-adapter.sh
 bash scripts/test-zcode-hooks.sh
 bash scripts/test-prose-net-parity.sh

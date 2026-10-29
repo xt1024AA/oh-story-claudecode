@@ -1,4 +1,6 @@
-# 守卫套件跟上上游：scripts/ 一起同步，CRLF 补丁保留
+# Agent Note: 守卫套件跟上上游：scripts/ 一起同步，CRLF 补丁保留
+
+Status: implemented
 
 ## Problem
 
@@ -26,4 +28,16 @@
 
 收益：三条守卫恢复可读信号，`static-check`、`skill-numbering`、`doc-budget`、`shared-files` 四条命令在本机（CRLF 检出 + 无 `python3`）全绿；上游新增的 `test-handoff-contracts.py`、`test-zcode-agents.py` 也在本仓通过，跨技能交接与 ZCode 角色有了本地回归。
 
-代价：`scripts/` 变成「大部分镜像上游 + 一处有意偏离（CRLF 补丁）」，以后每次同步都要记得把那一行贴回去，否则本机守卫会红——这正是它容易被忽略的地方。CHANGELOG / README / CONTRIBUTING 与 `.github/workflows` 仍停在 0.8.x 时代，本次没碰，属下一笔欠账。
+代价：`scripts/` 变成「大部分镜像上游 + 一处有意偏离（CRLF 补丁）」，以后每次同步都要记得把那一行贴回去，否则本机守卫会红——这正是它容易被忽略的地方。CHANGELOG / README / CONTRIBUTING 与 `.github/workflows` 当时仍停在 0.8.x 时代，随后一并同步到了 v0.9.1。
+
+## 本地 CI 清单实跑（2026-10-29）
+
+`CONTRIBUTING.md` 的 44 条强制命令在本机跑：41 条通过，3 条因 Windows 能力缺失而失败，均与仓库内容无关：
+
+| 命令 | 失败原因 |
+| --- | --- |
+| `python scripts/test-shared-assets.py` | 用 `os.chmod(0o644)` 制造可执行位漂移；Windows 没有 POSIX 可执行位，`st_mode & 0o111` 恒为 0，漂移无法表示（上游只在 Linux job 跑它） |
+| `bash scripts/check-codex-adapter.sh` | 仓库里 `.agents/skills` 是指向 skills 目录的 symlink（mode 120000）；本机 `core.symlinks=false` 且无创建符号链接的特权，检出后成了普通文件 |
+| `bash scripts/check-opencode-adapter.sh` | 用例在临时目录里 `os.symlink(...)`，`OSError: [WinError 1314] 客户端没有所需的特权` |
+
+跑法上还有三处环境垫片，记在这里免得下次重猜：`python3` 指向 Microsoft Store 占位程序（静默 `exit 49`）→ 用 `$HOME/.dsh-ci-shim/python3.exe` 转发；本机 MSYS bash 的 `/usr/bin` 没有 `chmod` → 空实现垫片；子进程中文输出按 UTF-8 解码需要 `PYTHONUTF8=1`。另外命令清单要用独立 fd 读取，否则个别用例读 stdin 会吃掉后续命令（首轮只跑了 33 条就是这个原因）。
