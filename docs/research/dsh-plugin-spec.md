@@ -4,16 +4,16 @@
 > 取数日期：2026-10-03　取数环境：DeepSeek Harness Desktop 本机（DSH 0.2.0-rc.2，profile `desktop`）
 >
 > **路径简写**（下文一律使用，全文同义）：
-> - `$ASAR` = `C:\Users\49178\AppData\Local\Programs\DeepSeek Harness\resources\app.asar\dsh\node_modules\@deepseek-ai`
-> - `$DSH` = `C:\Users\49178\AppData\Local\Programs\DeepSeek Harness\resources\app.asar\dsh`
-> - `$PROFILE` = `C:\Users\49178\.dsh\profiles\desktop`
+> - `$ASAR` = `%USERPROFILE%\AppData\Local\Programs\DeepSeek Harness\resources\app.asar\dsh\node_modules\@deepseek-ai`
+> - `$DSH` = `%USERPROFILE%\AppData\Local\Programs\DeepSeek Harness\resources\app.asar\dsh`
+> - `$PROFILE` = `%USERPROFILE%\.dsh\profiles\desktop`
 > - `$SAMPLE` = `$PROFILE\node_modules\@linfengqaqtat\dsh-scriptor`
 > - `$DECK` = `$PROFILE\node_modules\dsh-mattpocock-skills-deck`
 >
 > **取证方法补充**：任务书提示 `app.asar` 是打包文件、普通文件 API 读不进去。实测**可以读**——用 Electron 自己的 Node 模式即可（Electron 给 `fs` 打了 asar 补丁）：
 > ```powershell
 > $env:ELECTRON_RUN_AS_NODE='1'
-> & 'C:\Users\49178\AppData\Local\Programs\DeepSeek Harness\DeepSeek Harness.exe' --expose-internals <script.js>
+> & '%USERPROFILE%\AppData\Local\Programs\DeepSeek Harness\DeepSeek Harness.exe' --expose-internals <script.js>
 > ```
 > 这与官方自身的说法一致（`$ASAR\dsh-agent-preset\skills\cordis-plugin-development\SKILL.md:38`：「In Desktop the directory sits inside `app.asar`, which only the Host process's own file reads can open; shell commands (`ls`, `cat`, `cp`, `cmp`), the glob and search tools (they run a native ripgrep process), `node`, and pnpm all fail on it.」——即**宿主进程自己的文件读取**能开，外部 `node`/ripgrep 不能）。本文档中所有 `$ASAR`、`$DSH` 证据均由该方式读出，其余路径用常规文件读取。
 

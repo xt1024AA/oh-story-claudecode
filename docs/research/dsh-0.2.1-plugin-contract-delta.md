@@ -6,12 +6,12 @@
 > 方法：所有 `$ASAR` / `$DSH` 证据均由宿主自己的 Electron-as-node 读出（`readFileSync`/`readdirSync`），活体契约由 `cordis_inspect_query` 取；`$PROFILE` 与工作区文件用普通文件读取。
 >
 > **路径简写**
-> - `$ASAR` = `C:\Users\49178\AppData\Local\Programs\DeepSeek Harness\resources\app.asar\dsh\node_modules\@deepseek-ai`
-> - `$DSH` = `C:\Users\49178\AppData\Local\Programs\DeepSeek Harness\resources\app.asar\dsh`
-> - `$PROFILE` = `C:\Users\49178\.dsh\profiles\desktop`
+> - `$ASAR` = `%USERPROFILE%\AppData\Local\Programs\DeepSeek Harness\resources\app.asar\dsh\node_modules\@deepseek-ai`
+> - `$DSH` = `%USERPROFILE%\AppData\Local\Programs\DeepSeek Harness\resources\app.asar\dsh`
+> - `$PROFILE` = `%USERPROFILE%\.dsh\profiles\desktop`
 > - `$PKG` = 本仓库插件包 `D:\DS\插件\oh-story-claudecode\packages\dsh-plugin`
 >
-> **取证限制**：本机只装了 `0.2.1-rc.2` 一份 DSH（`C:\Users\49178\AppData\Local\Programs` 下无旧版；updater 缓存里只有 0.2.1-rc.2 的安装器）。因此「0.2.0 → 0.2.1 的差异」只能通过**上一轮 0.2.0 的实测记录**做逐条对照，不能做两份 asar 的字节级 diff。凡是上一轮文档没写、本轮才有的事实，都在正文里点名。
+> **取证限制**：本机只装了 `0.2.1-rc.2` 一份 DSH（`%USERPROFILE%\AppData\Local\Programs` 下无旧版；updater 缓存里只有 0.2.1-rc.2 的安装器）。因此「0.2.0 → 0.2.1 的差异」只能通过**上一轮 0.2.0 的实测记录**做逐条对照，不能做两份 asar 的字节级 diff。凡是上一轮文档没写、本轮才有的事实，都在正文里点名。
 
 ---
 

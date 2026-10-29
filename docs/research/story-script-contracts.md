@@ -9,7 +9,7 @@
 | 平台 | Windows / pwsh（会话工作目录 `D:\DS\插件\oh-story-claudecode`） | 实跑 |
 | `node --version` | `v24.20.0` | 实跑 |
 | `python --version` / `py --version` | `Python 3.14.7`（`python` → `C:\Python314\python.exe`；`py` → `C:\WINDOWS\py.exe`） | 实跑 |
-| `python3 --version` | **无输出，exit 9009**（`python3` → `C:\Users\49178\AppData\Local\Microsoft\WindowsApps\python3.exe`，Microsoft Store 占位程序） | 实跑 |
+| `python3 --version` | **无输出，exit 9009**（`python3` → `%USERPROFILE%\AppData\Local\Microsoft\WindowsApps\python3.exe`，Microsoft Store 占位程序） | 实跑 |
 | 破坏性实验落点 | 系统临时目录 `%TEMP%\oh-story-research\`（`proj` / `proj2` / `bookA` / `bookB` / `normtest` 等，均为 `demo\` 的副本或临时构造） | 实跑 |
 | 仓库自身 | 除本文档外未新增/修改任何文件（跑完 `git status --porcelain` 与跑前一致） | 实跑 |
 
@@ -379,7 +379,7 @@ $ python ... wordcount checkpoint --file <demo 第021章> --project <demo 书> -
 - CI：`.github/workflows/cross-platform.yml:121`（python 探测守卫）；`CONTRIBUTING.md:99`（`test-storyctl.py`）、`:123`（`test-normalize-punctuation.js`）。
 - 文档：`demo\去AI味对照\README.md`（两次真实扫描的期望输出）、`docs\how-to-remove-ai-flavor-from-web-fiction.md:45`、`skills\story-deslop\references\anti-ai-writing.md:44/277/303/327/331`、`banned-words.md:26/149`。
 - 历史与本机差异：`CHANGELOG.md:101`（Node 18+）、`:305`（Python 3.9 兼容范围）、`:753`/`:758`（`python3` Store 占位程序与守卫）。
-- 本机 Python 解析结果：`python` = `C:\Python314\python.exe`、`py` = `C:\WINDOWS\py.exe`、`python3` = `C:\Users\49178\AppData\Local\Microsoft\WindowsApps\python3.exe`（`Get-Command` 实测）。
+- 本机 Python 解析结果：`python` = `C:\Python314\python.exe`、`py` = `C:\WINDOWS\py.exe`、`python3` = `%USERPROFILE%\AppData\Local\Microsoft\WindowsApps\python3.exe`（`Get-Command` 实测）。
 
 **本次实跑产生的临时产物**（都在系统临时目录，仓库未落任何中间文件；跑完可删）
 

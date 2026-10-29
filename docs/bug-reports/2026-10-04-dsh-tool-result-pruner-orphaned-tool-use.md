@@ -39,7 +39,7 @@ DSH documents that failed-step recovery does **not** rewrite unanswered calls in
 日志位置：
 
 ```
-C:\Users\49178\.dsh\sessions\--D-DS-~63D2~4EF6-oh-story-claudecode--\session-367598b5-6b7a-4d81-b450-eeab0df04165\session.v4.jsonl.zstd
+%USERPROFILE%\.dsh\sessions\--D-DS-~63D2~4EF6-oh-story-claudecode--\session-367598b5-6b7a-4d81-b450-eeab0df04165\session.v4.jsonl.zstd
 ```
 
 ---
