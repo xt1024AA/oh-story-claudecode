@@ -313,7 +313,14 @@ try {
 
   const compact = { system: [] };
   await hooks.session.compaction(compact);
-  assert(compact.system.some((part) => part.type === "text" && part.text.includes("Writing context: book/追踪/上下文.md")));
+  // preCompactOutput 用 path.relative 生成相对路径，Windows 上是反斜杠；
+  // 归一化后比较，断言仍然验证「摘要里点名了活跃书的追踪/上下文.md」。
+  const compactText = compact.system
+    .filter((part) => part.type === "text")
+    .map((part) => part.text)
+    .join("\n")
+    .replaceAll("\\", "/");
+  assert(compactText.includes("Writing context: book/追踪/上下文.md"));
 
   // 共享核 staged commit 检查也会拉 git。直接调用已部署布局中的真实模块，代理只记录并
   // 转发，确保断言命中 stagedMarkdownWarnings() 实际传给 spawnSync 的 options。

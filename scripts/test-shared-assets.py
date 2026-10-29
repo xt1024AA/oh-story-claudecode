@@ -17,7 +17,7 @@ TOOL = REPO_ROOT / "scripts" / "sync-shared-assets.py"
 
 
 def run(root: Path, manifest: Path, command: str) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
+    completed = subprocess.run(
         [
             sys.executable,
             str(TOOL),
@@ -31,6 +31,16 @@ def run(root: Path, manifest: Path, command: str) -> subprocess.CompletedProcess
         capture_output=True,
         check=False,
     )
+    if os.sep != "/":
+        # 检查器用 OS 原生分隔符打印路径（Windows 上是反斜杠），下面断言里的期望值是 / 分隔；
+        # 统一归一化，断言内容不变，只是不因分隔符跨平台失败。
+        completed = subprocess.CompletedProcess(
+            completed.args,
+            completed.returncode,
+            completed.stdout.replace("\\", "/"),
+            completed.stderr.replace("\\", "/"),
+        )
+    return completed
 
 
 def write_manifest(path: Path, groups: list[dict[str, object]]) -> None:
@@ -74,12 +84,18 @@ with tempfile.TemporaryDirectory(prefix="shared-assets-") as tmp:
     clean = run(root, manifest, "check")
     assert clean.returncode == 0, clean.stderr + clean.stdout
 
-    target.chmod(0o644)
-    mode_drift = run(root, manifest, "check")
-    assert mode_drift.returncode == 1, mode_drift.stderr + mode_drift.stdout
-    assert "mode" in mode_drift.stdout
-    assert run(root, manifest, "sync").returncode == 0
-    assert target.stat().st_mode & 0o111, "sync must repair executable mode drift"
+    # Windows 不区分 POSIX 可执行位：os.chmod 只切只读属性，st_mode & 0o111 恒为 0，
+    # 「mode 漂移」在本机不可表示。这组断言只在 POSIX 文件系统上有意义（CI 跑 Linux）。
+    posix_exec_bits = bool(target.stat().st_mode & 0o111)
+    if posix_exec_bits:
+        target.chmod(0o644)
+        mode_drift = run(root, manifest, "check")
+        assert mode_drift.returncode == 1, mode_drift.stderr + mode_drift.stdout
+        assert "mode" in mode_drift.stdout
+        assert run(root, manifest, "sync").returncode == 0
+        assert target.stat().st_mode & 0o111, "sync must repair executable mode drift"
+    else:
+        print("SKIP: 本机文件系统不区分 POSIX 可执行位，mode 漂移用例不可表示（Windows）")
 
     target.write_text("drift\n", encoding="utf-8")
     drift = run(root, manifest, "check")
@@ -90,7 +106,8 @@ with tempfile.TemporaryDirectory(prefix="shared-assets-") as tmp:
     synced = run(root, manifest, "sync")
     assert synced.returncode == 0, synced.stderr + synced.stdout
     assert target.read_bytes() == source.read_bytes()
-    assert target.stat().st_mode & 0o111, "sync must preserve executable mode"
+    if posix_exec_bits:
+        assert target.stat().st_mode & 0o111, "sync must preserve executable mode"
     assert run(root, manifest, "check").returncode == 0
 
     target.unlink()

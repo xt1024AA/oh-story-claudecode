@@ -229,7 +229,13 @@ external.mkdir()
 write_agent(link_src / "a.md", "a")
 (link_src_root / "CLAUDE.md.tmpl").write_text("instructions\n", encoding="utf-8")
 (external / "a.md").write_text("external sentinel\n", encoding="utf-8")
-(link_dst / "agents").symlink_to(external, target_is_directory=True)
+try:
+    (link_dst / "agents").symlink_to(external, target_is_directory=True)
+except (OSError, NotImplementedError):
+    # Windows 无创建符号链接特权时是 WinError 1314；这一子用例在本机不可表示，
+    # 前面关于回滚的断言已经跑过，这里只跳过 symlink 目录这一条，CI 上仍然校验。
+    print("  SKIP symlinked agents directory case（本机无创建符号链接的特权）")
+    raise SystemExit(0)
 before_external = snapshot(external)
 try:
     run_normal(link_root)
