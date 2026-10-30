@@ -3,9 +3,15 @@
 把 [oh-story-claudecode](https://github.com/zenstory-ai/oh-story-claudecode) 的网文写作能力搬进
 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)（DSH）的插件。
 
-> **当前状态：v0.2.2** —— 13 个 skill 随包交付（vendored + parity 校验，#7）；写作闭环核心的确定性
+> **当前状态：v0.2.4** —— 14 个 skill 随包交付（vendored + parity 校验，#7）；写作闭环核心的确定性
 > 脚本封装为 8 个 `oh_story_*` 工具（#8）；本机装机的两种 spec、真实业务结果与边界补测见
 > [`docs/verification/2026-10-05-machine-smoke.md`](docs/verification/2026-10-05-machine-smoke.md)。
+>
+> **v0.2.4 跟上 DSH `0.2.1-rc.5`**：兼容基线 `SUPPORTED_RUNTIMES` 增加 `0.2.1-rc.5`（本机在用的运行时），
+> 在该版本上复验 `oh_story_probe`「此刻在册 8 个」与 35 项工具面测试全绿；`peerDependencies` 的
+> `^0.2.0-rc.2` 一个字没改就已覆盖它。
+>
+> **v0.2.3 跟上上游 v0.9.2**：随包 skill 由 13 个变 14 个，新增 `story-publish`（书名 / 简介 / 主角名 / 分类 / 标签的番茄建书资料，长篇与短故事两套）；skills 全量重新 vendored，`npm test` 的 manifest / manifest-guard / parity / 35 项工具测试全绿。
 >
 > **v0.2.2 修的是「DSH 升到 0.2.1-rc.2 后整包被跳过」**：`peerDependencies` 原先是精确的预发布版本
 > `0.2.0-rc.2`，而宿主用 `semver.satisfies(runtime, range, { includePrerelease: true })` 判兼容 ——
@@ -42,7 +48,7 @@ packages/dsh-plugin/
 │   ├── check-parity.mjs  # skills 副本与根 skills 的逐字节校验（#7）
 │   ├── sync-skills.mjs   # 同步 vendored skills（#7）
 │   └── test-tools.mjs    # 工具面测试：真实业务结果 + 全部错误路径（#8 / #9）
-├── skills/               # 13 个 skill 的 vendored 副本（与根 skills/ 逐字节一致）
+├── skills/               # 14 个 skill 的 vendored 副本（与根 skills/ 逐字节一致）
 ├── examples/minimal/     # 最小示例（#11，不进 tgz）
 ├── docs/verification/    # 装机验收留档与逐字原始输出（#9，不进 tgz）
 └── README.md
@@ -80,7 +86,7 @@ packages/dsh-plugin/
 
 | 项 | 要求 | 说明 |
 | --- | --- | --- |
-| DSH | `^0.2.0-rc.2`（`0.2.0-rc.2` 与 `0.2.1-rc.2` 实测） | 唯一被强制的依赖是 `peerDependencies` 里的 `@deepseek-ai/dsh-skill-filesystem`（宿主提供，本包不装）；范围必须覆盖你实际在用的运行时，详见上一节 |
+| DSH | `^0.2.0-rc.2`（`0.2.0-rc.2`、`0.2.1-rc.2` 与 `0.2.1-rc.5` 实测） | 唯一被强制的依赖是 `peerDependencies` 里的 `@deepseek-ai/dsh-skill-filesystem`（宿主提供，本包不装）；范围必须覆盖你实际在用的运行时，详见上一节 |
 | Node | ≥ 24（`engines.node`） | 三个检测器是 Node 脚本；PATH 里没有 `node` 时回退**宿主内置 Node**（Electron-as-node） |
 | Python | 3.x | 探测链 `python3 → python → py -3`，每个候选**实跑** `-c ""` 验证；**自动跳过 Microsoft Store 占位程序**（本机 `python3` exit 9009，落到 `python`） |
 | OS | 实测 Windows；脚本本身跨平台 | `dsh plugin` 是 pnpm 转发（随 DSH 自带） |
@@ -137,7 +143,7 @@ Done in 365ms using pnpm v11.7.0
 ```powershell
 cd <本目录>
 npm pack --pack-destination <输出目录>
-dsh plugin --profile <profile> add "<输出目录>\dsh-oh-story-claudecode-0.2.2.tgz"
+dsh plugin --profile <profile> add "<输出目录>\dsh-oh-story-claudecode-0.2.4.tgz"
 ```
 
 实测输出（`npm pack`，2026-10-18 v0.2.2）：
@@ -215,10 +221,10 @@ dsh <profile> '调 oh_story_chapter_check，参数 project="<书目录>"、chapt
 
 | 命令 | 覆盖 | 最近一次实测 |
 | --- | --- | --- |
-| `node scripts/check-manifest.mjs` | **清单与 DSH 兼容性**（v0.2.2 新增）：peer 是范围且覆盖 `SUPPORTED_RUNTIMES` 每个基线、拒绝 `engines.dsh`、`VERSION`/包名/patch 行 id 三处一致、`exports`+`files` 覆盖 locale 与 icon、icon ≤256 KiB、13 个 skill 的 frontmatter 满足宿主硬要求 | `[check-manifest] 全部通过。` |
+| `node scripts/check-manifest.mjs` | **清单与 DSH 兼容性**（v0.2.2 新增）：peer 是范围且覆盖 `SUPPORTED_RUNTIMES` 每个基线、拒绝 `engines.dsh`、`VERSION`/包名/patch 行 id 三处一致、`exports`+`files` 覆盖 locale 与 icon、icon ≤256 KiB、14 个 skill 的 frontmatter 满足宿主硬要求 | `[check-manifest] 全部通过。` |
 | `node scripts/test-manifest-guard.mjs` | 上面那个守卫的**变异回归**：把 0.2.1 事故等 13 种复现形态逐个造出来断言变红，再还原复绿（fail-closed 语法、包目录不存在也判红） | `清单守卫回归：14 项，0 项失败。` |
 | `node scripts/test-tools.mjs` | 35 项：A 组装配通路 + 真实业务结果（demo 书/正文）；B 组全部错误路径（Python/Node 不可用、脚本缺失、审批拒绝/不可用、事务过期…）；信封形状逐项校验 | `工具面测试：35 项，0 项失败。` |
-| `node scripts/check-parity.mjs` | `skills/` 副本与仓库根 `skills/` 逐字节一致（绿 / 人为注入即红 / 还原复绿） | `[check-parity] 一致：465 个文件逐字节相同。` |
+| `node scripts/check-parity.mjs` | `skills/` 副本与仓库根 `skills/` 逐字节一致（绿 / 人为注入即红 / 还原复绿） | `[check-parity] 一致：447 个文件逐字节相同。` |
 | `npx --yes -p typescript@5 tsc --noEmit --strict --target es2022 --module nodenext --moduleResolution nodenext examples/types/consumer.ts` | `lib/index.d.ts` 的类型声明可用（编译期契约检查，不运行） | 退出码 0（反例见「类型声明」一节） |
 | `node scripts/sync-skills.mjs` | 从根 `skills/` 同步 vendored 副本（`--check` 只读） | — |
 
@@ -278,7 +284,7 @@ npx --yes -p typescript@5 tsc --noEmit --strict --target es2022 `
   `examples/` 与 `docs/` 只在本仓提供（它们依赖仓库里的 `demo/` 样书与相对链接，进了 tgz 也用不上）。
 - 本 README 里指向 `../../docs/...`、`../../.agents/notes/...` 的链接**只在仓库内有效**。
 - 文档里的版本号、文件数、shasum 都是**实测值**，随代码变化；换代码后请重新 `npm pack` 并更新。
-- 安装/卸载、工具调用、边界行为的实测环境：DSH `0.2.0-rc.2`（#9/#11 装机）与 `0.2.1-rc.2`（v0.2.2 兼容性取证）·
+- 安装/卸载、工具调用、边界行为的实测环境：DSH `0.2.0-rc.2`（#9/#11 装机）、`0.2.1-rc.2`（v0.2.2 兼容性取证）与 `0.2.1-rc.5`（v0.2.3 同步复验）·
   Node `v24.20.0` / `v24.21.0` · Python `3.14.7`（Windows）。
 
 ## 依据

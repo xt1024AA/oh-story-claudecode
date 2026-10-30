@@ -2,7 +2,7 @@
 /**
  * dsh-oh-story-claudecode —— vendored skills 同步脚本（wayfinder #7）
  *
- * 把仓库根 `skills/*`（13 个写作 skill）整目录复制到本子包 `skills/`，
+ * 把仓库根 `skills/*`（14 个写作 skill）整目录复制到本子包 `skills/`，
  * 保持逐字节一致。配套校验脚本：check-parity.mjs。
  *
  * 设计说明：

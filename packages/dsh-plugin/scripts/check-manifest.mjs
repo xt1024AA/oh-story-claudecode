@@ -19,7 +19,7 @@
  * 于是本脚本守三件事：
  *
  *   A. **兼容性**：peer 必须是「范围」而不是精确版本，并且必须同时满足我们声明支持的全部
- *      基线运行时（默认 `0.2.0-rc.2` 与 `0.2.1-rc.2`）。想加新基线就加进 `SUPPORTED_RUNTIMES`。
+ *      基线运行时（默认见 `SUPPORTED_RUNTIMES`：`0.2.0-rc.2` / `0.2.1-rc.2` / `0.2.1-rc.5`）。想加新基线就加进 `SUPPORTED_RUNTIMES`。
  *   B. **一致性**：`lib/index.js` 的 `VERSION`、`cordis.patch.yml` 的 id/name、包名三处必须相同；
  *      版本号必须是精确 SemVer（宿主用 `name@version` 做豁免键，范围会直接不可用）。
  *   C. **可装载的形状**：`dsh.bundle.patch` 指向存在的文件；`exports` / `files` 覆盖 locale 与 icon；
@@ -49,7 +49,7 @@ const DEFAULT_PACKAGE_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta
  * 所以升级 DSH 后请先跑本脚本；不兼容就改 `peerDependencies` 的范围，别加版本豁免
  * （豁免只对精确 `name@version` 生效，且插件升级/DSH 升级都不继承）。
  */
-const SUPPORTED_RUNTIMES = ["0.2.0-rc.2", "0.2.1-rc.2"];
+const SUPPORTED_RUNTIMES = ["0.2.0-rc.2", "0.2.1-rc.2", "0.2.1-rc.5"];
 
 /** icon 的硬限制（`$ASAR/dsh-app-boot/lib/index.js` 的 `iconOf`）：≤256 KiB，且只认这四种格式。 */
 const ICON_EXTENSIONS = new Set([".svg", ".png", ".jpg", ".jpeg", ".webp"]);
