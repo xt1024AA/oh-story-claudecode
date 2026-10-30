@@ -21,6 +21,8 @@ jobs:
         run: bash scripts/static-check.sh
       - name: Structured static-check regression
         run: python3 scripts/test-static-check.py
+      - name: Publishing preparation regression
+        run: python3 scripts/test-publish-format.py
       - name: Check agent decision notes
         run: python3 scripts/check-agent-notes.py
       - name: Agent decision notes regression
@@ -157,6 +159,8 @@ jobs:
         run: |
           python3 scripts/check-plugin-packaging.py
           python3 scripts/test-plugin-packaging.py
+      - name: Publishing preparation regression
+        run: python3 scripts/test-publish-format.py
       - name: AI-pattern detector regression
         shell: bash
         run: bash scripts/test-ai-patterns.sh
@@ -254,6 +258,8 @@ jobs:
         run: |
           python3 scripts/check-plugin-packaging.py
           python3 scripts/test-plugin-packaging.py
+      - name: Publishing preparation regression
+        run: python3 scripts/test-publish-format.py
       - name: AI-pattern detector regression
         run: bash scripts/test-ai-patterns.sh
       - name: Outline-copy detector regression

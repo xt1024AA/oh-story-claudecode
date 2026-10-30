@@ -4,6 +4,8 @@ Status: implemented
 
 对应事故：2026-10-18，本机 DSH 从 `0.2.0-rc.2` 升到 `0.2.1-rc.2` 之后，`dsh-oh-story-claudecode@0.2.1` **整包不再装载**，而 `npm pack`、35 项工具测试、parity、类型检查全部照旧全绿。修在 0.2.2。
 
+后续事实（2026-10-30，v0.2.4）：本机 DSH 升到 `0.2.1-rc.5`，`peerDependencies` 的 `^0.2.0-rc.2` 未改动即已覆盖它，插件装载正常（`oh_story_probe` 回读「此刻在册 8 个」）；`SUPPORTED_RUNTIMES` 已就地加上该基线，`test:manifest`、14 项变异回归与 35 项工具测试在新基线上复跑全绿。上面第 3 条说的「加基线要人改常量」这次就是一次实例。
+
 ## Problem
 
 `packages/dsh-plugin/package.json` 声明了：

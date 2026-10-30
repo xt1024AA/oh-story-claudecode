@@ -11,6 +11,36 @@
   ],
   "files": [
     {
+      "path": "skills/story-publish/SKILL.md",
+      "budget": 3000,
+      "why": "发布资料准备入口：状态与定稿原则、作品材料定位、封面交接、输出模板与格式检查；番茄规则只在参考文件里写一次。发布资料文件是以后自动填表的格式契约（元信息、三种字段取值、文件名），随入口读。"
+    },
+    {
+      "path": "skills/story-publish/references/fanqie.md",
+      "budget": 1600,
+      "why": "番茄字段规则与核验范围，每次必读；取证过程在 docs/evidence/fanqie/，不进运行时。"
+    },
+    {
+      "path": "skills/story-publish/references/fanqie-reading-male.md",
+      "budget": 900,
+      "why": "男频阅读标签候选，选男频时读。"
+    },
+    {
+      "path": "skills/story-publish/references/fanqie-reading-female.md",
+      "budget": 1000,
+      "why": "女频阅读标签候选，选女频时读。"
+    },
+    {
+      "path": "skills/story-publish/references/fanqie-content-tags.md",
+      "budget": 1700,
+      "why": "长篇内容标签候选，可与男/女频阅读标签同轮读。"
+    },
+    {
+      "path": "skills/story-publish/references/fanqie-short.md",
+      "budget": 1300,
+      "why": "短故事分类候选、发布设置与输出替换，只在短故事时读。"
+    },
+    {
       "path": "skills/story-long-write/SKILL.md",
       "budget": 6750,
       "why": "长篇入口与阶段路由；目录/产物与完整资料索引按原文迁出，锁住无条件加载节省。 调高：新增「面向作者的汇报」通则（每个流程的汇报都受它约束，必须入口常驻）与「继续写」一句话确认规则；真机会话里作者看不懂脚本名、字段名、状态码，汇报口径只能放在每次都加载的入口。 v0.8.2：开书改为按时刻路由（写前必读第 1 条列三份时刻文件）。 v0.8.2 调高 300：规划、改稿任务的作者记忆 query 命令写进入口（不再为查询整读 author-memory.md 协议）；主会话自己写时本章技法只读路由指向的一节、日更一批一份；「定设定」进场景表与触发词；Notice/Fallback 只进技术备注行。 e2e（出细纲）：{PYTHON} 的探测顺序写进入口；各时刻文件自带交接规则；排纲底稿加「批次定位」；新书无追踪时视角取设定与卷纲。"
@@ -292,6 +322,107 @@
     }
   ],
   "paths": [
+    {
+      "label": "番茄发布准备（长篇）",
+      "files": [
+        "skills/story-publish/SKILL.md",
+        "skills/story-publish/references/fanqie.md"
+      ],
+      "branches": [
+        {
+          "label": "男频阅读标签",
+          "files": [
+            "skills/story-publish/references/fanqie-reading-male.md"
+          ],
+          "budget": 5300
+        },
+        {
+          "label": "女频阅读标签",
+          "files": [
+            "skills/story-publish/references/fanqie-reading-female.md"
+          ],
+          "budget": 5400
+        },
+        {
+          "label": "内容标签",
+          "files": [
+            "skills/story-publish/references/fanqie-content-tags.md"
+          ],
+          "budget": 6100
+        },
+        {
+          "label": "封面方案",
+          "files": [
+            "skills/story-cover/SKILL.md",
+            "skills/story-cover/references/cover-styles.md"
+          ],
+          "budget": 16100
+        },
+        {
+          "label": "封面API回退",
+          "files": [
+            "skills/story-cover/references/api-fallback.md"
+          ],
+          "budget": 7800
+        }
+      ],
+      "stacking": {
+        "budget": 21800,
+        "slots": [
+          [
+            "男频阅读标签",
+            "女频阅读标签"
+          ],
+          [
+            "内容标签"
+          ],
+          [
+            "封面方案"
+          ],
+          [
+            "封面API回退"
+          ]
+        ]
+      },
+      "why": "男/女频互斥；内容标签、封面方案可同轮叠加，作者指定 API 时再加 API 回退。"
+    },
+    {
+      "label": "番茄发布准备（短故事）",
+      "files": [
+        "skills/story-publish/SKILL.md",
+        "skills/story-publish/references/fanqie.md",
+        "skills/story-publish/references/fanqie-short.md"
+      ],
+      "branches": [
+        {
+          "label": "封面方案",
+          "files": [
+            "skills/story-cover/SKILL.md",
+            "skills/story-cover/references/cover-styles.md"
+          ],
+          "budget": 17300
+        },
+        {
+          "label": "封面API回退",
+          "files": [
+            "skills/story-cover/references/api-fallback.md"
+          ],
+          "budget": 9000
+        }
+      ],
+      "stacking": {
+        "budget": 20600,
+        "slots": [
+          [
+            "封面方案"
+          ],
+          [
+            "封面API回退"
+          ]
+        ]
+      },
+      "why": "短故事与长篇互斥，只加短故事参考；封面方案与 API 回退可叠加。"
+    },
     {
       "label": "长篇日更主会话（写手代写）",
       "files": [

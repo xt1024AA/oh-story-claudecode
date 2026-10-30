@@ -6,7 +6,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-EXPECTED_COUNT=13
+EXPECTED_COUNT=14
 TMP_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/ohstory-codex-e2e.XXXXXX")"
 trap 'rm -rf "$TMP_ROOT"' EXIT
 
@@ -19,7 +19,14 @@ mkdir -p "$TMP_ROOT/home/.codex"
 WORKSPACE="$TMP_ROOT/workspace"
 mkdir -p "$WORKSPACE/.agents" "$WORKSPACE/.codex/agents" "$WORKSPACE/.codex/hooks"
 cp -R "$REPO_ROOT/skills" "$WORKSPACE/skills"
-ln -s ../skills "$WORKSPACE/.agents/skills"
+if ! ln -s ../skills "$WORKSPACE/.agents/skills" 2>/dev/null || [ ! -L "$WORKSPACE/.agents/skills" ]; then
+  # MSYS 在没有符号链接特权时会把 `ln -s` 退化成目录拷贝（不是链接），Codex 于是把
+  # discovery 根报成 `.agents/skills/...`，与断言里的 `skills/...` 绝对路径对不上。
+  # Windows 的目录 junction 不需要特权，且 path.resolve() 会穿透回目标，行为等价。
+  rm -rf "$WORKSPACE/.agents/skills"
+  ( cd "$WORKSPACE" && cmd //c "mklink /J .agents\\skills skills" >/dev/null ) \
+    || fail "cannot create .agents/skills link (symlink or junction) in the fixture"
+fi
 cp "$REPO_ROOT"/skills/story-setup/references/codex/agents/*.toml \
   "$WORKSPACE/.codex/agents/"
 cp "$REPO_ROOT/skills/story-setup/references/codex/hooks/hooks.json" \
@@ -80,6 +87,11 @@ def strings(value):
 
 rendered = "\n".join(strings(data))
 
+def posix(path):
+    """`/` 分隔绝对路径。Windows 上 Path.resolve() 给反斜杠，Codex 给的根是正斜杠，
+    两种写法混在一起时子串比较永远对不上（Linux 上分隔符本来就是 `/`，此函数为恒等式）。"""
+    return str(Path(path).resolve()).replace("\\", "/")
+
 # Codex CLI >= 0.151.0 renders skills as short `rN/<skill>/SKILL.md` paths plus a
 # "Skill roots" alias table. Expand the aliases back to absolute paths so the
 # assertions below stay version-agnostic; older CLIs emit absolute paths and no
@@ -88,12 +100,13 @@ skill_roots = re.findall(r"^- `(r\d+)` = `([^`]+)`", rendered, re.MULTILINE)
 for alias, root in sorted(skill_roots, key=lambda item: -len(item[0])):
     rendered = re.sub(
         r"(?<![0-9A-Za-z_])" + re.escape(alias) + "/",
-        str(Path(root).resolve()).replace("\\", "\\\\") + "/",
+        lambda _match, value=posix(root): value + "/",
         rendered,
     )
+rendered = rendered.replace("\\", "/")
 
 expected = {
-    path.parent.name: str(path.resolve())
+    path.parent.name: posix(path)
     for path in (repo_root / "skills").glob("*/SKILL.md")
 }
 if len(expected) != expected_count:
@@ -106,7 +119,7 @@ if missing:
     raise SystemExit(f"Codex prompt input omitted repository skills: {missing}")
 
 repo_pattern = re.compile(
-    re.escape(str(repo_root / "skills")) + r"/([^/]+)/SKILL\.md"
+    re.escape(posix(repo_root / "skills")) + r"/([^/]+)/SKILL\.md"
 )
 discovered = set(repo_pattern.findall(rendered))
 extra = sorted(discovered - set(expected))
