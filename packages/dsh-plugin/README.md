@@ -3,9 +3,13 @@
 把 [oh-story-claudecode](https://github.com/zenstory-ai/oh-story-claudecode) 的网文写作能力搬进
 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)（DSH）的插件。
 
-> **当前状态：v0.2.4** —— 14 个 skill 随包交付（vendored + parity 校验，#7）；写作闭环核心的确定性
+> **当前状态：v0.2.5** —— 14 个 skill 随包交付（vendored + parity 校验，#7）；写作闭环核心的确定性
 > 脚本封装为 8 个 `oh_story_*` 工具（#8）；本机装机的两种 spec、真实业务结果与边界补测见
 > [`docs/verification/2026-10-05-machine-smoke.md`](docs/verification/2026-10-05-machine-smoke.md)。
+>
+> **v0.2.5 跟上上游 v0.10.0「长篇与短篇写作清理」**：vendored skills 全量重新同步到 0.10.0
+> （`skills/story/VERSION`；`agents_version: 39` / `setup_skill_version: 1.3.7`；随包仍是 14 个 skill），
+> 上游删掉的 17 份参考文件随同步移除，`check-parity` 报 434 个文件逐字节相同。
 >
 > **v0.2.4 跟上 DSH `0.2.1-rc.5`**：兼容基线 `SUPPORTED_RUNTIMES` 增加 `0.2.1-rc.5`（本机在用的运行时），
 > 在该版本上复验 `oh_story_probe`「此刻在册 8 个」与 35 项工具面测试全绿；`peerDependencies` 的
@@ -143,7 +147,7 @@ Done in 365ms using pnpm v11.7.0
 ```powershell
 cd <本目录>
 npm pack --pack-destination <输出目录>
-dsh plugin --profile <profile> add "<输出目录>\dsh-oh-story-claudecode-0.2.4.tgz"
+dsh plugin --profile <profile> add "<输出目录>\dsh-oh-story-claudecode-0.2.5.tgz"
 ```
 
 实测输出（`npm pack`，2026-10-18 v0.2.2）：
@@ -224,7 +228,7 @@ dsh <profile> '调 oh_story_chapter_check，参数 project="<书目录>"、chapt
 | `node scripts/check-manifest.mjs` | **清单与 DSH 兼容性**（v0.2.2 新增）：peer 是范围且覆盖 `SUPPORTED_RUNTIMES` 每个基线、拒绝 `engines.dsh`、`VERSION`/包名/patch 行 id 三处一致、`exports`+`files` 覆盖 locale 与 icon、icon ≤256 KiB、14 个 skill 的 frontmatter 满足宿主硬要求 | `[check-manifest] 全部通过。` |
 | `node scripts/test-manifest-guard.mjs` | 上面那个守卫的**变异回归**：把 0.2.1 事故等 13 种复现形态逐个造出来断言变红，再还原复绿（fail-closed 语法、包目录不存在也判红） | `清单守卫回归：14 项，0 项失败。` |
 | `node scripts/test-tools.mjs` | 35 项：A 组装配通路 + 真实业务结果（demo 书/正文）；B 组全部错误路径（Python/Node 不可用、脚本缺失、审批拒绝/不可用、事务过期…）；信封形状逐项校验 | `工具面测试：35 项，0 项失败。` |
-| `node scripts/check-parity.mjs` | `skills/` 副本与仓库根 `skills/` 逐字节一致（绿 / 人为注入即红 / 还原复绿） | `[check-parity] 一致：447 个文件逐字节相同。` |
+| `node scripts/check-parity.mjs` | `skills/` 副本与仓库根 `skills/` 逐字节一致（绿 / 人为注入即红 / 还原复绿） | `[check-parity] 一致：434 个文件逐字节相同。` |
 | `npx --yes -p typescript@5 tsc --noEmit --strict --target es2022 --module nodenext --moduleResolution nodenext examples/types/consumer.ts` | `lib/index.d.ts` 的类型声明可用（编译期契约检查，不运行） | 退出码 0（反例见「类型声明」一节） |
 | `node scripts/sync-skills.mjs` | 从根 `skills/` 同步 vendored 副本（`--check` 只读） | — |
 
