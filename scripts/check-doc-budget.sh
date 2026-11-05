@@ -129,7 +129,12 @@ const generatedWeight = (gen) => {
       chars = out.chars;
       // 包里写的是参考文件绝对路径，长度随机器上的仓库位置变；按去掉仓库根后的文本计量，各机器结果一致。
       if (Number.isInteger(chars) && out.brief && fs.existsSync(out.brief)) {
-        chars = strip(fs.readFileSync(out.brief, "utf8").split(repoRoot + path.sep).join(""));
+        // 仓库根在 bash 侧可能是 MSYS 形式（/d/...），而 brief 里写的是原生反斜杠路径；
+        // 三种写法都剔一遍，否则同一份内容在 Windows 上会多算一截路径（Linux 上三者等价，读数不变）。
+        const roots = new Set([repoRoot, repoRoot.replace(/\\/g, "/"), repoRoot.replace(/\//g, "\\")]);
+        let text = fs.readFileSync(out.brief, "utf8");
+        for (const needle of roots) if (needle) text = text.split(needle).join("");
+        chars = strip(text);
       }
     } catch (e) { chars = null; }
     fs.rmSync(tmp, { recursive: true, force: true });

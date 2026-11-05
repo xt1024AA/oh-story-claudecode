@@ -121,8 +121,33 @@ fi
 
 # Custom-agent TOMLs are generated deterministically from the Claude templates.
 python3 scripts/generate-codex-agents.py --dest "$TMP_DIR/agents" >/dev/null
-diff -qr "$TMP_DIR/agents" "$CODEX_DIR/agents" >/dev/null \
-  || fail "generated Codex agents are stale; run scripts/generate-codex-agents.py"
+# Windows 检出（core.autocrlf=true）下提交的 TOML 是 CRLF、生成器写 LF，逐字节 diff 会把行尾差异
+# 当成「过期」。按忽略行尾的内容比对，语义不变（LF 检出上两种写法等价）。
+python3 - "$TMP_DIR/agents" "$CODEX_DIR/agents" <<'PY' || fail "generated Codex agents are stale; run scripts/generate-codex-agents.py"
+import pathlib
+import sys
+
+gen = pathlib.Path(sys.argv[1])
+cur = pathlib.Path(sys.argv[2])
+
+
+def normalized(path):
+    return path.read_text(encoding="utf-8").replace("\r\n", "\n")
+
+
+gen_files = {p.relative_to(gen) for p in gen.rglob("*") if p.is_file()}
+cur_files = {p.relative_to(cur) for p in cur.rglob("*") if p.is_file()}
+problems = []
+for rel in sorted(gen_files - cur_files):
+    problems.append(f"missing: {rel}")
+for rel in sorted(cur_files - gen_files):
+    problems.append(f"extra: {rel}")
+for rel in sorted(gen_files & cur_files):
+    if normalized(gen / rel) != normalized(cur / rel):
+        problems.append(f"differs: {rel}")
+if problems:
+    raise SystemExit("stale generated agents:\n  " + "\n  ".join(problems))
+PY
 if grep -RInE '当前 Claude 部署|(^|[^[:alnum:]_])/story(-[a-z0-9-]+)?' "$CODEX_DIR/agents"; then
   fail "generated Codex agents must use Codex platform wording and \$story* invocations"
 fi

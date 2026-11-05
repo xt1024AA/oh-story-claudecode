@@ -887,8 +887,9 @@ assert_no_grep 'missing_primary_contract|context_load' "$SKILL_DIR/references/te
 for agent_template in "$SKILL_DIR"/references/templates/agents/*.md; do
   assert_no_grep '^memory:' "$agent_template" "agent templates must not enable persistent agent memory"
 done
-assert_grep 'missing_primary_contract' "$REPO_ROOT/skills/story-long-write/references/project-files.md" "story-long-write must not silently fallback for missing primary artifacts"
-assert_grep '内容概括（五段式）|情节安排（多线）|人物关系和出场顺序|结尾设定和钩子' "$SKILL_DIR/references/templates/agents/story-architect.md" "story-architect must output v13 chapter blueprint fields"
+# 0.10 起「对标资料缺了怎么办」只在 benchmark-recall 定义（project-files 只留目录树与产物表）。
+assert_grep 'missing_primary_contract' "$REPO_ROOT/skills/story-long-write/references/benchmark-recall.md" "story-long-write must not silently fallback for missing primary artifacts"
+assert_grep '这章怎么走|情节安排（多线）|人物关系和出场顺序|结尾设定和钩子' "$SKILL_DIR/references/templates/agents/story-architect.md" "story-architect must output v13 chapter blueprint fields"
 assert_grep '逻辑线|人物关系变化|行动成本（可无）/收益归属|结尾设定' "$SKILL_DIR/references/templates/agents/consistency-checker.md" "consistency-checker must consume current outline blueprint fields"
 assert_grep '语气标点谱系' "$SKILL_DIR/references/templates/agents/narrative-writer.md" "narrative-writer must enforce v13 tone punctuation"
 assert_grep '不用.*……|不使用.*……|不保留.*……|不残留.*……' "$SKILL_DIR/references/templates/agents/narrative-writer.md" "narrative-writer must reject ellipsis pause punctuation"
@@ -1110,7 +1111,17 @@ copy_hooks "$restart_root"
 copy_agent_refs "$restart_root"
 write_sentinel "$restart_root"
 touch "$restart_root/.claude/.agents-pending-restart"
-restart_out="$(run_from_nested "$restart_root" session-start.sh || true)"
+# compact / clear 不是新会话：不能声称 agents 已重新加载，也不能吃掉标记
+for restart_source in compact clear; do
+  restart_out="$(printf '{"hook_event_name":"SessionStart","source":"%s"}' "$restart_source" \
+    | run_from_nested "$restart_root" session-start.sh || true)"
+  if echo "$restart_out" | grep -q '现已注册可用'; then
+    fail "session-start claimed agents reloaded on source=$restart_source"
+  fi
+  [ -f "$restart_root/.claude/.agents-pending-restart" ] || fail "session-start cleared the restart flag on source=$restart_source"
+done
+restart_out="$(printf '{"hook_event_name":"SessionStart","source":"startup"}' \
+  | run_from_nested "$restart_root" session-start.sh || true)"
 echo "$restart_out" | grep -q '现已注册可用' || fail "session-start did not confirm agents registered after restart flag"
 [ ! -f "$restart_root/.claude/.agents-pending-restart" ] || fail "session-start did not clear the one-shot .agents-pending-restart flag"
 echo "  OK TS12 restart-flag confirmation"

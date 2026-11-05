@@ -12,11 +12,6 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 ROOT="$REPO_ROOT/skills/story-setup/references/opencode"
 TMP_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/ohstory-opencode-e2e.XXXXXX")"
 TMP_ROOT="$(cd "$TMP_ROOT" && pwd -P)"
-# 服务端只认原生绝对路径：MSYS 的 `/tmp/...` 在 Windows 上会 404（Location not found），
-# 而头部值必须是 `C:/...` 这种形式。MSYS 下用 `pwd -W` 换出原生路径，其他平台原样返回。
-native_dir() {
-  ( cd "$1" 2>/dev/null && pwd -W 2>/dev/null ) || printf '%s\n' "$1"
-}
 CLI_HOME="$TMP_ROOT/home"
 PROJECT="$TMP_ROOT/project"
 MOCK_LOG="$TMP_ROOT/mock-requests.jsonl"
@@ -30,16 +25,11 @@ if ! command -v opencode >/dev/null 2>&1; then
 fi
 
 run_opencode() {
-  # MSYS 会把以 `/` 开头的参数当成路径改写成 Windows 形式（`/api/info` 变成
-  # `C:/Program Files/Git/api/info`），opencode 于是解析不出 method+path，报
-  # `Expected an operation name or an HTTP method and path`。只豁免 `/api` 前缀，
-  # 其余参数（如 `-H x-opencode-directory:<...>`）仍按原样做路径转换。
   HOME="$CLI_HOME" \
     XDG_CONFIG_HOME="$CLI_HOME/.config" \
     XDG_DATA_HOME="$CLI_HOME/.local/share" \
     XDG_CACHE_HOME="$CLI_HOME/.cache" \
     XDG_STATE_HOME="$CLI_HOME/.local/state" \
-    MSYS2_ARG_CONV_EXCL="/api${MSYS2_ARG_CONV_EXCL:+;$MSYS2_ARG_CONV_EXCL}" \
     command opencode "$@"
 }
 
@@ -75,7 +65,7 @@ api_list() {
   local directory="$1" out="$2" require="$3"; shift 3
   local attempt
   for attempt in $(seq 1 30); do
-    if run_opencode api "$@" -H "x-opencode-directory:$(native_dir "$directory")" >"$out" 2>"$out.err" &&
+    if run_opencode api "$@" -H "x-opencode-directory:$directory" >"$out" 2>"$out.err" &&
       python3 -c '
 import json, sys
 data = json.load(open(sys.argv[1])).get("data")
@@ -313,7 +303,7 @@ data = json.load(sys.stdin)
 items = data.get("data", data) if isinstance(data, dict) else data
 print(items[0]["id"])')"
 : >"$MOCK_LOG"
-run_opencode api session.compact --param "sessionID=$SESSION_ID" -d '{}' -H "x-opencode-directory:$(native_dir "$PROJECT")" >/dev/null
+run_opencode api session.compact --param "sessionID=$SESSION_ID" -d '{}' -H "x-opencode-directory:$PROJECT" >/dev/null
 compacted=""
 for _ in $(seq 1 60); do
   if grep -q 'Pre-Compact Summary' "$MOCK_LOG" 2>/dev/null; then compacted=1; break; fi

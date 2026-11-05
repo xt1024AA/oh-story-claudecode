@@ -313,13 +313,12 @@ try {
 
   const compact = { system: [] };
   await hooks.session.compaction(compact);
-  // preCompactOutput 用 path.relative 生成相对路径，Windows 上是反斜杠；
-  // 归一化后比较，断言仍然验证「摘要里点名了活跃书的追踪/上下文.md」。
+  // Windows 上 path.relative 给的是反斜杠；断言前把分隔符归一，产品输出仍是本地惯例。
   const compactText = compact.system
-    .filter((part) => part.type === "text")
+    .filter((part) => part.type === "text" && typeof part.text === "string")
     .map((part) => part.text)
     .join("\n")
-    .replaceAll("\\", "/");
+    .replace(/\\/g, "/");
   assert(compactText.includes("Writing context: book/追踪/上下文.md"));
 
   // 共享核 staged commit 检查也会拉 git。直接调用已部署布局中的真实模块，代理只记录并
