@@ -67,7 +67,7 @@ const TAG = "[dsh-oh-story-claudecode]";
  * 0.2.4：兼容基线扩到 DSH 0.2.1-rc.5（本机在用的运行时），在该版本上复验工具面与 35 项工具测试。
  * 0.2.5：跟上上游 v0.10.0「长篇与短篇写作清理」——vendored skills 全量重新同步（随包仍是 14 个 skill）。
  */
-const VERSION = "0.2.5";
+const VERSION = "0.2.6";
 
 /** 随包 skills 根目录：与 lib/ 同级。用 import.meta.url 解析，保证插件被装到别处也能读。 */
 const BUNDLED_SKILL_DIR = fileURLToPath(new URL("../skills/", import.meta.url));

@@ -3,9 +3,15 @@
 把 [oh-story-claudecode](https://github.com/zenstory-ai/oh-story-claudecode) 的网文写作能力搬进
 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)（DSH）的插件。
 
-> **当前状态：v0.2.5** —— 14 个 skill 随包交付（vendored + parity 校验，#7）；写作闭环核心的确定性
+> **当前状态：v0.2.6** —— 14 个 skill 随包交付（vendored + parity 校验，#7）；写作闭环核心的确定性
 > 脚本封装为 8 个 `oh_story_*` 工具（#8）；本机装机的两种 spec、真实业务结果与边界补测见
 > [`docs/verification/2026-10-05-machine-smoke.md`](docs/verification/2026-10-05-machine-smoke.md)。
+>
+> **v0.2.6 跟上上游 v0.10.3「精简重复指令与培训说教」**：vendored skills 全量重新同步到 0.10.3
+> （`skills/story/VERSION`；`agents_version: 42` / `setup_skill_version: 1.3.10`；随包仍是 14 个 skill），
+> 新增 v0.10.1 的 `story-setup/references/agent-references/cross-book-recall.md`，`check-parity` 报
+> 435 个文件逐字节相同。本版是净删减：清掉跨文件重复段落、文末复述与面向人类培训的心态说教
+> （白名单内 344 个文件、+4810/−11100 行），按需路由表、18 套短篇公式、10 套题材节奏骨架与正反例保留。
 >
 > **v0.2.5 跟上上游 v0.10.0「长篇与短篇写作清理」**：vendored skills 全量重新同步到 0.10.0
 > （`skills/story/VERSION`；`agents_version: 39` / `setup_skill_version: 1.3.7`；随包仍是 14 个 skill），
@@ -147,7 +153,7 @@ Done in 365ms using pnpm v11.7.0
 ```powershell
 cd <本目录>
 npm pack --pack-destination <输出目录>
-dsh plugin --profile <profile> add "<输出目录>\dsh-oh-story-claudecode-0.2.5.tgz"
+dsh plugin --profile <profile> add "<输出目录>\dsh-oh-story-claudecode-0.2.6.tgz"
 ```
 
 实测输出（`npm pack`，2026-10-18 v0.2.2）：

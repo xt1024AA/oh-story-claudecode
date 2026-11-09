@@ -59,7 +59,10 @@ for BOOK_DIR in "${BOOK_DIRS[@]}"; do
     # 仅检查表格数据行中的状态列。当前协议正常状态（已埋/已回收/放弃）不报警，
     # 避免长篇项目每次 SessionStart 都触发全量伏笔审计。
     # 行为回归脚本：scripts/check-hook-regex-sync.sh（区域设置健壮性由 export LC_ALL=C 保证）
-    ABNORMAL_FORESHADOW=$(awk -F'|' '
+    # awk 程序写字面量里会被 Windows 中文系统按 ANSI 代码页（cp936）重新编码 argv，
+    # 中文比较永远不相等、每个项目都误报（Linux CI 不经过这次转换，故长期未暴露）。
+    # 改由 -f 从进程替换读程序：程序不经过 argv，字节原样保留。
+    ABNORMAL_FORESHADOW=$(awk -F'|' -f <(cat <<'AWK_FORESHADOW'
       # 含全角空格 U+3000：LC_ALL=C 下 [[:space:]] 只认 ASCII 空白，单元格用全角空格补白时
       # 会留在 status 里被误判为异常；用交替补上全角空格（不能进字符组，否则触发跨区域 bug）。
       function trim(s) { gsub(/^([[:space:]]|　)+|([[:space:]]|　)+$/, "", s); return s }
@@ -71,7 +74,8 @@ for BOOK_DIR in "${BOOK_DIRS[@]}"; do
         if (status == "" || status == "状态" || status ~ /^状态\{/) next
         if (status == "已过期" || (status != "已埋" && status != "已回收" && status != "放弃")) print
       }
-    ' "$BOOK_DIR/追踪/伏笔.md" 2>/dev/null || true)
+AWK_FORESHADOW
+    ) "$BOOK_DIR/追踪/伏笔.md" 2>/dev/null || true)
     if [ -n "$ABNORMAL_FORESHADOW" ]; then
       BOOK_OUTPUT+="[WARN] ${BOOK_NAME}：伏笔.md 中检测到过期或异常的伏笔条目，建议跑 /story-review lean 或做一次伏笔审计。${NL}"
     fi
@@ -101,7 +105,11 @@ if [ -d "$ROOT/拆文库" ]; then
   # 同 session-start：按「最终状态」过滤，拆完的书不再报（裸数文件会永久误报）。
   while IFS= read -r progress_file; do
     [ -n "$progress_file" ] || continue
-    GLOBAL_PROGRESS_OUTPUT+="[WARN] 拆文未完成：${progress_file#$ROOT/}，运行 /story-long-analyze 继续。${NL}"
+    # MSYS 的 find 把 /c/... 规范化成 C:/...，与 project_root 的 `pwd -P` 形式不一致，
+    # 前缀剥离会落空、提示里带出整条绝对路径。剥不到就退回到「拆文库/ 之后」的相对写法。
+    display_path=${progress_file#$ROOT/}
+    [ "$display_path" = "$progress_file" ] && display_path="拆文库/${progress_file#*/拆文库/}"
+    GLOBAL_PROGRESS_OUTPUT+="[WARN] 拆文未完成：${display_path}，运行 /story-long-analyze 继续。${NL}"
   done < <(discover_incomplete_analyses "$ROOT")
 fi
 if [ -n "$GLOBAL_PROGRESS_OUTPUT" ]; then

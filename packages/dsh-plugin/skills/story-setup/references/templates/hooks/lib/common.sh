@@ -102,7 +102,10 @@ analysis_incomplete() {
   # GBK 区域下 bash 按双字节解码脚本源码，全角冒号的尾字节会和紧邻的 `}` 配成一个字符、
   # 把右花括号吃掉，`${x#*：}` 这种写法会让整个 common.sh 语法错误、所有 hook 一起哑掉。
   # 字符组同理（[：:] 会被按字节拆开），故用 (：|:) 交替。
-  value=$(LC_ALL=C grep -m1 -oE '最终状态(：|:)[[:space:]]*[A-Za-z_]+' "$1" 2>/dev/null \
+  # `</dev/null` 不能省：Windows MSYS 下「grep 带文件参数 + 输出进管道」会顺手吞掉
+  # 调用方 while 循环的 stdin，discover_incomplete_analyses 于是只检查第一个 _progress.md
+  # （Linux 不复现，故长期只在 Windows 上少报）。本函数从不读 stdin，钉死即可。
+  value=$(LC_ALL=C grep -m1 -oE '最终状态(：|:)[[:space:]]*[A-Za-z_]+' "$1" 2>/dev/null </dev/null \
     | LC_ALL=C grep -oE '[A-Za-z_]+$' || true)
   [ -n "$value" ] || return 0
   case "$value" in
