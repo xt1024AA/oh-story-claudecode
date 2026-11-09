@@ -212,7 +212,9 @@ def check_template_fences(root: Path, out: Violations) -> None:
         if doc.resolve() in copies:
             continue
         for tag, line, _ in fence.template_blocks(doc.read_text(encoding="utf-8")):
-            where.setdefault(tag, []).append(f"{doc.relative_to(root)}:{line}")
+            # 统一用 POSIX 分隔符：Windows 下 relative_to 给反斜杠，
+            # 下面 endswith("/" + source) 的比对会永远失败（CI 在 Linux 上不暴露）。
+            where.setdefault(tag, []).append(f"{doc.relative_to(root).as_posix()}:{line}")
     for tag in tags:
         hits = where.get(tag, [])
         if not hits:

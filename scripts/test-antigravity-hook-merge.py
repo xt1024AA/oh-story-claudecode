@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 import tempfile
 from pathlib import Path
 
@@ -37,7 +38,10 @@ def main() -> None:
         target.chmod(0o640)
         MODULE.atomic_write(target, merged)
         assert json.loads(target.read_text(encoding="utf-8")) == merged
-        assert target.stat().st_mode & 0o777 == 0o640
+        # Windows 只有 read-only 位，chmod 640 读回来是 666；权限断言只在 POSIX 上有意义
+        # （Linux CI 照旧校验，本地 Windows 不为这条假红挡路）。
+        if os.name != "nt":
+            assert target.stat().st_mode & 0o777 == 0o640
 
     try:
         MODULE.merge({}, {"other": {}})

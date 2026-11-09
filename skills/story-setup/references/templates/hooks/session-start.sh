@@ -29,7 +29,17 @@ ROOT=$(project_root)
 # SessionStart 输入的 source：startup / resume 是新进程，compact / clear 仍在原进程里。
 HOOK_SOURCE=""
 if [ ! -t 0 ]; then
-  HOOK_SOURCE=$(cat 2>/dev/null | LC_ALL=C sed -n 's/.*"source"[[:space:]]*:[[:space:]]*"\([a-z]*\)".*/\1/p' | head -1 || true)
+  # Windows/MSYS 下 `cat | sed | head` 这条链在命令替换里读不到管道内容（实测 HOOK_SOURCE 恒空，
+  # compact/clear 被当成新会话、连 .agents-pending-restart 标记一起吃掉）。先整段读进变量，
+  # 再用纯 bash case 匹配：与 guard-outline-before-prose.sh 的 HOOK_INPUT=$(cat) 同一写法。
+  HOOK_STDIN="$(cat 2>/dev/null || true)"
+  case "$HOOK_STDIN" in
+    *'"source":"compact"'*) HOOK_SOURCE=compact ;;
+    *'"source":"clear"'*) HOOK_SOURCE=clear ;;
+    *'"source":"startup"'*) HOOK_SOURCE=startup ;;
+    *'"source":"resume"'*) HOOK_SOURCE=resume ;;
+    *) HOOK_SOURCE="" ;;
+  esac
 fi
 
 # story-setup 部署后的一次性重启确认。custom agents 只在会话启动时被注册成
@@ -75,11 +85,11 @@ if sentinel_exists "$ROOT/.story-deployed"; then
       HAS_CONTENT=true
       ;;
     *)
-      if [ "$AGENTS_VERSION" -lt 39 ]; then
-        OUTPUT+="[WARN] story-setup agents_version=$AGENTS_VERSION 低于 v39。重新运行 /story-setup 刷新 hooks、agents 和 references（部署后需新开会话）。${NL}${NL}"
+      if [ "$AGENTS_VERSION" -lt 42 ]; then
+        OUTPUT+="[WARN] story-setup agents_version=$AGENTS_VERSION 低于 v42。重新运行 /story-setup 刷新 hooks、agents 和 references（部署后需新开会话）。${NL}${NL}"
         HAS_CONTENT=true
-      elif [ "$AGENTS_VERSION" -gt 39 ]; then
-        OUTPUT+="[WARN] story-setup agents_version=$AGENTS_VERSION 高于本 hook 支持的 v39。不要降级覆盖；请先更新 oh-story-claudecode。${NL}${NL}"
+      elif [ "$AGENTS_VERSION" -gt 42 ]; then
+        OUTPUT+="[WARN] story-setup agents_version=$AGENTS_VERSION 高于本 hook 支持的 v42。不要降级覆盖；请先更新 oh-story-claudecode。${NL}${NL}"
         HAS_CONTENT=true
       fi
       ;;

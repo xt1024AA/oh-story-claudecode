@@ -26,6 +26,19 @@ def make_source(root: Path) -> Path:
     return source
 
 
+def symlinks_supported() -> bool:
+    """Windows 未开开发者模式时 os.symlink 抛 WinError 1314，fixture 建不出来就跳过。"""
+    with tempfile.TemporaryDirectory(prefix="oh-story-symlink-probe-") as probe:
+        target = Path(probe) / "target.txt"
+        target.write_text("x", encoding="utf-8")
+        link = Path(probe) / "link.txt"
+        try:
+            link.symlink_to(target)
+        except OSError:
+            return False
+        return link.is_symlink()
+
+
 def main() -> None:
     # The deployer materializes only the skills it names; a skill added under skills/
     # without updating KNOWN_SKILLS would silently never reach Antigravity projects.
@@ -34,6 +47,10 @@ def main() -> None:
         f"KNOWN_SKILLS drift: missing={sorted(shipped - set(MODULE.KNOWN_SKILLS))}, "
         f"stale={sorted(set(MODULE.KNOWN_SKILLS) - shipped)}"
     )
+
+    if not symlinks_supported():
+        print("SKIP: symlink fixtures unavailable (Windows without symlink privilege); POSIX CI covers them")
+        return
 
     with tempfile.TemporaryDirectory(prefix="oh-story-antigravity-skills-") as directory:
         root = Path(directory)

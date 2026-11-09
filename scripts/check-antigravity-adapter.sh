@@ -52,13 +52,15 @@ for event, entries in group.items():
             assert 'hooks/story_antigravity_hook.js' in handler['command']
             assert '.agents/.agents/' not in handler['command']
             assert isinstance(handler['timeout'], int) and 1 <= handler['timeout'] <= 30
-assert group['PreToolUse'][0]['matcher'] == 'run_command|write_to_file|replace_file_content|multi_replace_file_content'
-assert group['PostToolUse'][0]['matcher'] == 'run_command|write_to_file|replace_file_content|multi_replace_file_content'
+expected_matcher = 'run_command|write_file|edit_file|write_to_file|replace_file_content|multi_replace_file_content'
+assert group['PreToolUse'][0]['matcher'] == expected_matcher
+assert group['PostToolUse'][0]['matcher'] == expected_matcher
 
 rule = Path('skills/story-setup/references/antigravity/rules/oh-story.md').read_text()
 assert rule.startswith('---\ntrigger: always_on\n---\n')
 assert len(rule) < 12_000
 assert '.agents/skills/' in rule and 'invoke_subagent' in rule
+assert 'Role' in rule and 'send_message' in rule and 'read_file' in rule
 assert '~/.gemini/' in rule and 'scratch/' in rule and 'inside the current workspace' in rule
 PY
 
@@ -69,7 +71,9 @@ printf '%s\n' 'legacy managed agent' > "$TMP_DIR/agents/story-explorer.md"
 mkdir -p "$TMP_DIR/outside-agent"
 printf '%s\n' 'outside canary' > "$TMP_DIR/outside-agent/agent.md"
 rm -rf "$TMP_DIR/agents/story-architect"
-ln -s "$TMP_DIR/outside-agent" "$TMP_DIR/agents/story-architect"
+# Windows 未开开发者模式时 ln -s 需要特权，fixture 建不出来就跳过这一段
+# （与 check-story-setup-deployment.sh 的 symlink fixture 同口径）。
+if ln -s "$TMP_DIR/outside-agent" "$TMP_DIR/agents/story-architect" 2>/dev/null; then
 node "$GENERATOR" --dest "$TMP_DIR/agents" >/dev/null
 [ "$(cat "$TMP_DIR/agents/user-agent/agent.md")" = "user-owned agent" ] \
   || fail "generator must preserve user-owned agents"
@@ -79,6 +83,10 @@ node "$GENERATOR" --dest "$TMP_DIR/agents" >/dev/null
   || fail "generator must replace a managed agent symlink with a real directory"
 [ "$(cat "$TMP_DIR/outside-agent/agent.md")" = "outside canary" ] \
   || fail "generator must not write through a managed agent symlink"
+else
+  echo "SKIP: managed-agent symlink fixture unavailable (symlink privilege required on Windows)"
+  node "$GENERATOR" --dest "$TMP_DIR/agents" >/dev/null
+fi
 python3 - "$TMP_DIR/agents" <<'PY'
 import re
 import sys
@@ -113,6 +121,7 @@ for agent in agents:
     assert '.claude/skills/' not in text
     assert '.agents/skills/story-setup/references/agent-references/' in text
     assert f'TypeName: "{name}"' in text
+    assert 'send_message' in text and 'read_file' in text and 'write_file' in text and 'edit_file' in text
 researcher = (root / 'story-researcher/agent.md').read_text(encoding='utf-8')
 assert 'has no WebSearch/webReader tool' in researcher
 assert 'never claim that web fallback ran' in researcher

@@ -90,7 +90,12 @@ fi
 # Bash 负载没有 file_path；直接目标抽不到时，再让共享核只识别重定向/tee/touch/cp/mv 的写入目标，
 # 避免把 grep/cat 等只读命令里提及的正文路径误判为写入。该面依赖 node；node 缺席时 Bash 命令
 # 按“宁可漏拦不可误伤”放行，Write/Edit/MultiEdit 仍走上面的纯 bash 兜底。
-[ -z "$TARGET" ] && TARGET="$(extract_target_bash 2>/dev/null || true)"
+# 用显式 if 而不是 `[ -z … ] && …`：TARGET 非空时 AND 列表返回 1，在 `set -e` 下会把
+# 本脚本直接带走（exit 1，既不拦也不放行）。实测含 node 核的 fixture 就是这样丢掉了
+# 本该发生的 exit 2；这条回落路径平时只在 node 缺席时才被走到，故 CI 长期未暴露。
+if [ -z "$TARGET" ]; then
+  TARGET="$(extract_target_bash 2>/dev/null || true)"
+fi
 
 ROOT=$(project_root)
 if [ -z "$TARGET" ]; then
