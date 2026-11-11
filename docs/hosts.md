@@ -36,7 +36,7 @@ repo 内直接使用：Codex 会扫描 `$REPO_ROOT/.agents/skills`（指向 `ski
 
 ## ZCode
 
-在 Plugin Management 中添加本仓库，安装 `oh-story`，即可调用全部 14 个 Skills/Commands。市场名可能显示 `oh-story-zcode`（根 catalog）或 `oh-story-skills`（Claude catalog）；选择其中一个即可，内容相同。旧版多条目安装按[升级指南](../skills/story-setup/UPGRADING.md#插件打包身份迁移v079-同版本修复)迁移。`$story-setup` 选择 `target_cli=zcode` 会部署 `.zcode/skills/`、`.zcode/commands/`、`.zcode/hooks/story_zcode_hook.js`，安全合并 `.zcode/config.json` 与根 `AGENTS.md`；Hook 依赖 PATH 中的 `node`。当前 ZCode 支持插件子代理；oh-story 插件注册 7 个专业角色，按当前 `Agent` 工具派发，只有角色或工具不可用时才降级。独立安装 Skills 不会注册这些角色，需启用插件；不创建 `.zcode/agents/` 或写入用户 home。升级插件后重新运行 `$story-setup` 更新项目快照和旧 AGENTS 指令，再新开会话。现有 Hook 适配不注册 `PreCompact` / `SessionEnd`，compact 后由 `SessionStart` 恢复上下文。见 [ZCode 插件](https://zcode.z.ai/en/docs/plugin)与[子代理文档](https://zcode.z.ai/en/docs/subagents)。
+在 Plugin Management 中添加本仓库，安装 `oh-story`，即可调用全部 14 个 Skills/Commands。市场名可能显示 `oh-story-zcode`（根 catalog）或 `oh-story-skills`（Claude catalog）；选择其中一个即可，内容相同。旧版多条目安装按[升级指南](../skills/story-setup/UPGRADING.md#插件打包身份迁移v079-同版本修复)迁移。`$story-setup` 选择 `target_cli=zcode` 会部署 `.zcode/skills/`、`.zcode/commands/`、`.zcode/hooks/story_zcode_hook.js`，安全合并 `.zcode/config.json` 与根 `AGENTS.md`；Hook 依赖 PATH 中的 `node`。注：ZCode 3.7+ 出于安全限制会忽略项目级 `.zcode/config.json` 的 `hooks`（`config_project_hooks_ignored`），写前守卫与写后检查须通过启用 `oh-story` 插件（或手动将 `hooks` 合入用户级 `~/.zcode/cli/config.json`）才会在运行时执行。当前 ZCode 支持插件子代理；oh-story 插件注册 7 个专业角色（默认带 `injectAgentsMd: false`，避免把主会话 `AGENTS.md` 重复注入子代理），按当前 `Agent` 工具派发，只有角色或工具不可用时才降级。独立安装 Skills 不会注册这些角色，需启用插件；不创建 `.zcode/agents/` 或写入用户 home。升级插件后重新运行 `$story-setup` 更新项目快照和旧 AGENTS 指令，再新开会话。现有 Hook 适配不注册 `PreCompact` / `SessionEnd`，compact 后由 `SessionStart` 恢复上下文。见 [ZCode 插件](https://zcode.z.ai/en/docs/plugin)与[子代理文档](https://zcode.z.ai/en/docs/subagents)。
 
 ## OpenCode
 
@@ -48,13 +48,13 @@ repo 内直接使用：Codex 会扫描 `$REPO_ROOT/.agents/skills`（指向 `ski
 
 ## Reasonix
 
-当前支持 skills + 原生 plugin manifest：Reasonix 原生扫描项目 skill root（`.agents/skills` 等，指向 `skills/` 的 symlink）发现 14 个 skill，用 `reasonix doctor capabilities` 校验；也可用根 `reasonix-plugin.json` 走 `reasonix plugin install`。`story-setup` 选择 `target_cli=reasonix` 时会把 skills 复制到项目 `skills/` 并写入 Reasonix 版 `AGENTS.md`；hooks/custom agents 暂不部署，涉及专业 Agent 的 skill 走 solo/direct fallback。Windows 未启用 symlink 时改走原生 plugin。
+当前支持 skills + 原生 plugin manifest（Manifest v2，`apiVersion: "reasonix.io/plugin/v2"`）：Reasonix 原生扫描项目 skill root（`.agents/skills` 等，指向 `skills/` 的 symlink）发现 14 个 skill，用 `reasonix doctor capabilities` 校验；也可用根 `reasonix-plugin.json` 走 `reasonix plugin install <repo> --yes`。`story-setup` 选择 `target_cli=reasonix` 时会把 skills 复制到项目 `skills/` 并写入 Reasonix 版 `AGENTS.md`；hooks/custom agents 暂不部署，涉及专业 Agent 的 skill 走 solo/direct fallback。Windows 未启用 symlink 时改走原生 plugin。
 
 ## Web AI / 通用 Agent
 
 平台能读取 GitHub 仓库或项目文件时，可让 Agent 读取 `skills/*/SKILL.md` 与对应 `references/`；需要本地副本时，`story-setup` 可选 `target_cli=generic`，只写通用 `AGENTS.md` 和 `skills/`。无本项目 hooks/custom agents 的环境按 skill 内软约束或 solo/direct fallback 执行。
 
-**OpenClaw / Reasonix / 通用路径的目录残留要手动清：** 这三条路径的 skill 副本在项目 `skills/` 里，重跑 `/story-setup` 执行的就是项目里那份，自动清理到不了。项目里若出现 `skills/story-setup/references/agent-references/agent-references/`（可能嵌了多层）或 `skills/story-setup/skills/`，手动删掉。要让项目里的 skill 文本本身更新，还需要重新安装本项目后，用新包覆盖项目 `skills/` 下这 13 个目录。
+**OpenClaw / Reasonix / 通用路径的目录残留要手动清：** 这三条路径的 skill 副本在项目 `skills/` 里，重跑 `/story-setup` 执行的就是项目里那份，自动清理到不了。项目里若出现 `skills/story-setup/references/agent-references/agent-references/`（可能嵌了多层）或 `skills/story-setup/skills/`，手动删掉。要让项目里的 skill 文本本身更新，还需要重新安装本项目后，用新包覆盖项目 `skills/` 下这 14 个目录（`browser-cdp` 与 `story*`）。
 
 升级后如果项目里已经跑过 `/story-setup`，建议在项目根重跑一次 `/story-setup`，同步 hooks / agents / references。每版变更见 [CHANGELOG.md](../CHANGELOG.md) 与 [Releases](https://github.com/zenstory-ai/oh-story-claudecode/releases)。
 
