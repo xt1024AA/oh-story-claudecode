@@ -3,9 +3,17 @@
 把 [oh-story-claudecode](https://github.com/zenstory-ai/oh-story-claudecode) 的网文写作能力搬进
 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)（DSH）的插件。
 
-> **当前状态：v0.2.6** —— 14 个 skill 随包交付（vendored + parity 校验，#7）；写作闭环核心的确定性
+> **当前状态：v0.2.7** —— 14 个 skill 随包交付（vendored + parity 校验，#7）；写作闭环核心的确定性
 > 脚本封装为 8 个 `oh_story_*` 工具（#8）；本机装机的两种 spec、真实业务结果与边界补测见
 > [`docs/verification/2026-10-05-machine-smoke.md`](docs/verification/2026-10-05-machine-smoke.md)。
+>
+> **v0.2.7 跟上上游 v0.10.3 之后的 4 个修补提交**（截至 `origin/main` `41d28fc`，上游**没有**发新 tag，
+> `skills/story/VERSION` 仍是 0.10.3，`agents_version` 仍是 42 / `setup_skill_version` 1.3.10）：
+> 收进 Dashboard 表格预览修复（`story/assets/app.js` 新增 `markdownTableCells`，正确处理 `\\` 与 `\|` 转义，
+> 配套 `styles.css` 与 2 个新 e2e 用例）、`story-short-analyze` 的「情节节点清单只存一份、拆文报告只写摘要」
+> （`output-contract.md` 与 `stage2-3-structure-emotion.md`）、以及 6 个此前漏同步的 docs 文档与
+> `docs/rules-horror-writing-guide.md`。`check-parity` 仍是 435 个文件逐字节相同；本仓库 README 的
+> 6 条 docs 死链随之修好。
 >
 > **v0.2.6 跟上上游 v0.10.3「精简重复指令与培训说教」**：vendored skills 全量重新同步到 0.10.3
 > （`skills/story/VERSION`；`agents_version: 42` / `setup_skill_version: 1.3.10`；随包仍是 14 个 skill），
@@ -153,7 +161,7 @@ Done in 365ms using pnpm v11.7.0
 ```powershell
 cd <本目录>
 npm pack --pack-destination <输出目录>
-dsh plugin --profile <profile> add "<输出目录>\dsh-oh-story-claudecode-0.2.6.tgz"
+dsh plugin --profile <profile> add "<输出目录>\dsh-oh-story-claudecode-0.2.7.tgz"
 ```
 
 实测输出（`npm pack`，2026-10-18 v0.2.2）：
