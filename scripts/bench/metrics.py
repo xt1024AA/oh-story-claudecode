@@ -7,7 +7,7 @@
 效率（按提交章数平均）：墙钟、主会话回合、工具调用、子 agent 次数、累计输入/输出 token、
 主会话单次上下文峰值、自动压缩次数、每章提交时刻。
 正文：每章可见字数与目标、第一次 chapter check 的长度结论、是否接受当前长度、
-check-ai-patterns 的 blocking/advisory 计数；给了 --tell 时加人类区间越界项数。
+check-ai-patterns 的 blocking/review_required/advisory 计数；给了 --tell 时加人类区间越界项数。
 """
 import argparse
 import json
@@ -19,8 +19,8 @@ from collections import Counter
 from datetime import datetime
 from pathlib import Path
 
-CHECK_RE = re.compile(r'storyctl\.py\S*\s+chapter\s+check\b.*?--chapter\s+(\d+)', re.S)
-COMMIT_RE = re.compile(r'storyctl\.py\S*\s+chapter\s+(commit|accept-current-length)\b.*?--chapter\s+(\d+)', re.S)
+CHECK_RE = re.compile(r'storyctl\.(?:js|py)\S*\s+chapter\s+check\b.*?--chapter\s+(\d+)', re.S)
+COMMIT_RE = re.compile(r'storyctl\.(?:js|py)\S*\s+chapter\s+(commit|accept-current-length)\b.*?--chapter\s+(\d+)', re.S)
 
 
 def jl(path):
@@ -41,14 +41,23 @@ def usage_add(tot, u):
 
 
 def check_status(text):
-    """chapter check 输出是一行 JSON；逐行找 story-chapter-check 的那行取 length.status。"""
-    for line in (text or '').splitlines():
-        line = line.strip()
+    """chapter check 输出为一行 JSON 或 --plain 白话报告；优先解析 JSON 取 length.status，否则回落白话行。"""
+    lines = [line.strip() for line in (text or '').splitlines()]
+    for line in lines:
         if 'story-chapter-check' in line and line.startswith('{'):
             try:
                 return json.loads(line)['length']['status']
             except (ValueError, KeyError, TypeError):
                 pass
+    for line in lines:
+        if re.search(r'比范围（[^）]+）少了约', line):
+            return 'under'
+        if re.search(r'比范围（[^）]+）多了约', line):
+            return 'over'
+        if re.search(r'(?<!不)在范围里', line):
+            return 'internal_pass'
+        if '正文是空的' in line:
+            return 'invalid'
     return None
 
 
@@ -268,15 +277,16 @@ def main():
         print(json.dumps(rows, ensure_ascii=False, indent=1))
         return
     keys = ['wall_min', 'input_tokens_total_M', 'input_uncached_K', 'output_tokens_K', 'main_calls', 'tool_calls', 'spawns']
-    print('| run | 章 | ' + ' | '.join(keys) + ' | ctx峰值K | 压缩 | 首检带内 | blocking/advisory |')
+    print('| run | 章 | ' + ' | '.join(keys) + ' | ctx峰值K | 压缩 | 首检带内 | blocking/review/advisory |')
     print('|' + '---|' * (len(keys) + 6))
     for r in rows:
         inband = sum(1 for s in r['first_check_status'].values() if s in ('internal_pass', 'borderline'))
         blk = sum(p.get('detector', {}).get('blocking', 0) for p in r['prose'])
+        rev = sum(p.get('detector', {}).get('review_required', 0) for p in r['prose'])
         adv = sum(p.get('detector', {}).get('advisory', 0) for p in r['prose'])
         print(f"| {r['run']} | {r['chapters_committed']}/{r['chapters_goal']} | "
               + ' | '.join(str(r['per_chapter'][k]) for k in keys)
-              + f" | {r['max_main_context_K']} | {r['compactions']} | {inband}/{len(r['first_check_status'])} | {blk}/{adv} |")
+              + f" | {r['max_main_context_K']} | {r['compactions']} | {inband}/{len(r['first_check_status'])} | {blk}/{rev}/{adv} |")
 
 
 if __name__ == '__main__':

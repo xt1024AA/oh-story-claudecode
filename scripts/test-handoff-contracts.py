@@ -6,8 +6,7 @@
 
 - 长篇拆文报告：各读取方用 `拆文报告.md`「小节」点名的小节；文风生成引用的小节；
   快速预览与拆文报告同名的两节；story-explorer 从黄金三章深度拆解读的字段。
-- 情绪模块卡：门禁字段以 inspiration_index.py 的 EM_REQUIRED_FIELDS 为准，
-  Stage 3 模板卡要能被同一个解析器读出全部门禁字段；长篇写前召回、作者报告、
+- 情绪模块卡：Stage 3 模板卡要含全部核心必填字段；长篇写前召回、
   story-explorer 点名的字段要对得上。
 - 节奏索引：长篇写前召回的 rhythm_reference 和 story-explorer 点名的列/表要在 节奏.md 模板里。
 - 短篇拆文：情节节点模板要有写作端点名的节点字段；genre_detected 的每个取值在写作端题材映射表里；
@@ -21,7 +20,7 @@
   审稿给短篇写「无追踪」时 consistency-checker 有短篇分支。
 - 导入短篇 → 短篇写作构思检查：导入的 `设定.md` 模板有写作端模板（`template=短篇设定` 围栏）的全部小节和基本信息、构思要点字段；
   照导入模板填好的设定和小节大纲跑 check-phase2-contract.js，只剩导入约定留给构思时定的两项。
-- 导入长篇 → 长篇写作：导入卷纲模板原样落盘过写作端 outline_view.py 的严格检查，按单元取得到卡，
+- 导入长篇 → 长篇写作：导入卷纲模板原样落盘过写作端 outline_view.js 的严格检查，按单元取得到卡，
   卡里有写正文组装脚本要读的单元字段；细纲检查脚本回报的模板出处在各副本所在 skill 里真实存在。
 - 写作端「目标平台」→ 审稿平台表：长篇题材定位、短篇设定模板、导入 Phase 1 能写的每个平台，
   都按篇幅出现在审稿的平台映射表里，映射到的平台表文件存在；审稿派 consistency-checker 时给出模板要的字段。
@@ -35,7 +34,6 @@ from __future__ import annotations
 
 import json
 import re
-import runpy
 import shutil
 import subprocess
 import sys
@@ -50,7 +48,6 @@ STAGE1 = f"{LONG_ANALYZE}/references/stage1-golden-chapters.md"
 STAGE3 = f"{LONG_ANALYZE}/references/stage3-plot-rhythm.md"
 STAGE5 = f"{LONG_ANALYZE}/references/stage5-report.md"
 STYLE_GENERATOR = f"{LONG_ANALYZE}/references/style-profile-generator.md"
-INSPIRATION_INDEX = f"{LONG_ANALYZE}/scripts/inspiration_index.py"
 LONG_RECALL = "skills/story-long-write/references/benchmark-recall.md"
 EXPLORER_LOAD = "skills/story-setup/references/agent-references/benchmark-style-load.md"
 IMPORT_LONG = "skills/story-import/references/structure-mapping-long.md"
@@ -281,23 +278,35 @@ def check_long_report(repo: Repo) -> list[str]:
 # ---------- 情绪模块卡 ----------
 
 
+EM_REQUIRED_FIELDS = ("读者想看什么", "情绪链", "戏剧单元", "可替换项", "不可照搬")
+
+
 def check_em_cards(repo: Repo) -> list[str]:
     failures: list[str] = []
-    module = runpy.run_path(str(ROOT / INSPIRATION_INDEX), run_name="handoff_contracts")
-    required = tuple(module["EM_REQUIRED_FIELDS"])
     template = fenced_block_after(repo.text(STAGE3), EM_TEMPLATE_HEADING)
     if not template:
         return [f"{STAGE3}: 找不到「情绪模块.md」模板标题下的模板代码块"]
 
-    cards, _index, problems = module["parse_em_module"](template)
+    required = EM_REQUIRED_FIELDS
+    em_headers = list(re.finditer(r"^###\s+(EM-\d{2,})\b.*$", template, re.M))
+    cards: list[dict[str, str]] = []
+    for idx, match in enumerate(em_headers):
+        start = match.end()
+        end = em_headers[idx + 1].start() if idx + 1 < len(em_headers) else len(template)
+        block = template[start:end]
+        card: dict[str, str] = {"em_id": match.group(1)}
+        for header, rows in tables(block):
+            if len(header) >= 2 and header[0] == "字段":
+                for row in rows:
+                    if len(row) >= 2 and row[0]:
+                        card[row[0]] = row[1]
+        cards.append(card)
     if not cards:
-        failures.append(f"{STAGE3}: inspiration_index 从情绪模块模板里解析不出 EM 卡")
+        failures.append(f"{STAGE3}: 情绪模块模板里找不到 `### EM-xxx` 卡片")
     for card in cards:
         missing = [f for f in required if not card.get(f, "").strip()]
         if missing:
-            failures.append(f"{STAGE3}: 模板卡 {card.get('em_id')} 缺门禁字段 {'、'.join(missing)}")
-    for problem in problems:
-        failures.append(f"{STAGE3}: inspiration_index 解析模板报问题 {problem}")
+            failures.append(f"{STAGE3}: 模板卡 {card.get('em_id')} 缺必填字段 {'、'.join(missing)}")
 
     vocabulary = set(required) | set(headings(template)) | set(table_header_cells(template))
     for card in cards:
@@ -729,7 +738,7 @@ def check_import_short(repo: Repo) -> list[str]:
     with tempfile.TemporaryDirectory(prefix="import-short-") as tmp:
         (Path(tmp) / "设定.md").write_text(settings, encoding="utf-8")
         (Path(tmp) / "小节大纲.md").write_text(outline, encoding="utf-8")
-        run = subprocess.run([node, str(ROOT / PHASE2_CHECK), "--json", tmp],
+        run = subprocess.run([node, str(ROOT / PHASE2_CHECK), "--json", "--strict", tmp],
                              capture_output=True, encoding="utf-8")
     try:
         failed = {item["id"] for item in json.loads(run.stdout)["failures"]}
@@ -803,8 +812,8 @@ def check_agent_dispatch(repo: Repo) -> list[str]:
 
 # ---------- 导入长篇 → 长篇写作 ----------
 
-LONG_OUTLINE_VIEW = "skills/story-long-write/scripts/outline_view.py"
-LONG_WRITER_PROMPT = "skills/story-long-write/scripts/build_writer_prompt.py"
+LONG_OUTLINE_VIEW = "skills/story-long-write/scripts/outline_view.js"
+LONG_WRITER_PROMPT = "skills/story-long-write/scripts/build_writer_prompt.js"
 OUTLINE_CONTRACT_COPIES = (
     "skills/story-long-write/scripts/check-outline-contract.js",
     "skills/story-import/scripts/check-outline-contract.js",
@@ -822,8 +831,18 @@ def check_import_long(repo: Repo) -> list[str]:
     if "```markdown\n" not in after:
         return [f"{IMPORT_LONG}: 卷纲模板不在 markdown 代码块里，确认写法后更新本测试"]
     template = after.split("```markdown\n", 1)[1].split("\n```\n", 1)[0]
+    node = shutil.which("node")
+    if node is None:
+        return [f"{LONG_OUTLINE_VIEW}: 需要 node 来运行 outline_view.js"]
     # 写正文组装脚本从剧情段卡读这两个字段（新旧叫法集中在取段器的 UNIT_FIELD_NAMES），缺了就只能全量召回。
-    names = runpy.run_path(str(ROOT / LONG_OUTLINE_VIEW))["UNIT_FIELD_NAMES"]
+    names_probe = subprocess.run(
+        [node, "-e", "console.log(JSON.stringify(require(process.argv[1]).UNIT_FIELD_NAMES))", str(ROOT / LONG_OUTLINE_VIEW)],
+        capture_output=True,
+        encoding="utf-8",
+    )
+    if names_probe.returncode != 0:
+        return [f"{LONG_OUTLINE_VIEW}: 读取 UNIT_FIELD_NAMES 失败：{(names_probe.stderr or names_probe.stdout).strip()[-200:]}"]
+    names = json.loads(names_probe.stdout)
     for aliases in names.values():
         if not any(f"- {field}：" in template for field in aliases):
             failures.append(f"{IMPORT_LONG}: 卷纲剧情段卡缺写正文要读的「{aliases[0]}」")
@@ -831,7 +850,7 @@ def check_import_long(repo: Repo) -> list[str]:
         volume = Path(tmp) / "卷纲_第1卷.md"
         volume.write_text(template + "\n", encoding="utf-8")
         run = lambda *args: subprocess.run(
-            [sys.executable, str(ROOT / LONG_OUTLINE_VIEW), *args, str(volume)],
+            [node, str(ROOT / LONG_OUTLINE_VIEW), *args, str(volume)],
             capture_output=True, encoding="utf-8")
         check = run("--check", "--strict")
         if check.returncode != 0:
@@ -840,10 +859,6 @@ def check_import_long(repo: Repo) -> list[str]:
         unit = run("--unit", "L1-01")
         if unit.returncode != 0 or "这段让读者图什么" not in unit.stdout:
             failures.append(f"{IMPORT_LONG}: 写作端按单元取不到导入卷纲的单元卡 L1-01")
-    node = shutil.which("node")
-    if node is None:
-        print("跳过细纲检查回报出处的核对：没有 node")
-        return failures
     with tempfile.TemporaryDirectory(prefix="outline-refs-") as tmp:
         stub = Path(tmp) / "细纲_第001章.md"
         stub.write_text("### 第 1 章：空\n", encoding="utf-8")
@@ -962,10 +977,10 @@ DESLOP_WRITER_CALLERS = (
 def check_deslop_handoff(repo: Repo) -> list[str]:
     failures: list[str] = []
     detector = repo.text(DESLOP_DETECTOR)
-    m = re.search(r"blocking by default[^(]*\(([^)]*)\)", detector)
+    m = re.search(r"severity:\s*(?:review_required|blocking by default)[^(]*\(([^)]*)\)", detector)
     blocking = {c.strip() for c in m.group(1).split("/")} if m else set()
     if not blocking:
-        failures.append(f"{DESLOP_DETECTOR}：读不出 blocking 类别清单")
+        failures.append(f"{DESLOP_DETECTOR}：读不出 review_required/blocking 类别清单")
     node = shutil.which("node")
     if node is None:
         print("跳过检测类别索引核对：没有 node")
@@ -1063,7 +1078,7 @@ NEGATIVE_CASES = (
     ("导入卷纲剧情段丢了单元编号注释", IMPORT_LONG, "{一句话} <!-- L1-01 -->", "{一句话}", "outline_view"),
     ("导入卷纲剧情段丢了这段让读者图什么", IMPORT_LONG, "- 这段让读者图什么：", "- 情绪引擎：", "这段让读者图什么"),
     ("审稿平台映射漏了晋江", REVIEW_SKILL, "晋江、其他", "其他", "晋江"),
-    ("审稿平台映射漏了黑岩", REVIEW_SKILL, "七猫、黑岩、红果", "七猫、红果", "黑岩"),
+    ("审稿平台映射漏了黑岩", REVIEW_SKILL, "七猫、黑岩、小程序", "七猫、小程序", "黑岩"),
     ("审稿端不给 consistency-checker 传修订号", REVIEW_PROMPTS, "  state_revision：", "  修订号：", "state_revision"),
     ("去味索引漏了一类 blocking", DESLOP_EXPRESSION, "**`em-dash`**", "**`em_dash`**", "em-dash"),
     ("短篇派写手用了写手不认的去味标签", "skills/story-short-write/references/agent-calls.md",

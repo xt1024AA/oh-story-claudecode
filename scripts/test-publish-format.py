@@ -1,19 +1,61 @@
 """Publishing-preparation regressions; no host CLI, network or third-party packages."""
 
-import importlib.util
-import os
+import json
 from pathlib import Path
 import subprocess
-import sys
 import tempfile
 import unittest
 
 
 ROOT = Path(__file__).resolve().parents[1]
-SCRIPT = ROOT / "skills/story-publish/scripts/check-publish-format.py"
-spec = importlib.util.spec_from_file_location("publish_format", SCRIPT)
-checker = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(checker)
+SCRIPT = ROOT / "skills/story-publish/scripts/check-publish-format.js"
+
+
+def check_text(text):
+    proc = subprocess.run(
+        [
+            "node",
+            "-e",
+            (
+                "const fs = require('node:fs');"
+                "const m = require(process.argv[1]);"
+                "const input = fs.readFileSync(0, 'utf8');"
+                "process.stdout.write(JSON.stringify(m.check(input)));"
+            ),
+            str(SCRIPT),
+        ],
+        input=text,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        check=True,
+    )
+    errs, warns = json.loads(proc.stdout)
+    return errs, warns
+
+
+def load_options_summary(name):
+    proc = subprocess.run(
+        [
+            "node",
+            "-e",
+            (
+                "const m = require(process.argv[1]);"
+                "const opts = m.loadOptions(process.argv[2]);"
+                "const out = {};"
+                "for (const [k, [vals, limit]] of opts.entries()) out[k] = [vals.size, limit];"
+                "process.stdout.write(JSON.stringify(out));"
+            ),
+            str(SCRIPT),
+            name,
+        ],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        check=True,
+    )
+    raw = json.loads(proc.stdout)
+    return {k: (v[0], v[1]) for k, v in raw.items()}
 
 
 LONG = """> 格式版本：1
@@ -89,17 +131,17 @@ SHORT = SHORT[:SHORT.index("## 阅读标签")] + """## 作品分类
 
 
 def errors(text):
-    return checker.check(text)[0]
+    return check_text(text)[0]
 
 
 def warnings(text):
-    return checker.check(text)[1]
+    return check_text(text)[1]
 
 
 class ContractTests(unittest.TestCase):
     def test_valid_long_and_short(self):
-        self.assertEqual(checker.check(LONG), ([], []))
-        self.assertEqual(checker.check(SHORT), ([], []))
+        self.assertEqual(check_text(LONG), ([], []))
+        self.assertEqual(check_text(SHORT), ([], []))
 
     def test_header_one_item_per_line_in_order(self):
         self.assertTrue(errors(LONG.replace("> 目标平台：番茄小说\n> 作品类型：长篇", "> 目标平台：番茄小说；作品类型：长篇")))
@@ -129,11 +171,29 @@ class ContractTests(unittest.TestCase):
 
     def test_placeholders_never_in_values(self):
         for before, after in (("- 主角1：江晨", "- 主角1：待作者确认"),
+                              ("- 主角1：江晨", "- 主角1：未定"),
+                              ("- 主角1：江晨", "- 主角1：江晨（建议）"),
                               ("- 人设：皇叔", "- 人设：建议皇叔"),
                               ("# 书本名称：春风：第2年", "# 书本名称：待确认"),
-                              ("江晨穿越到平行世界，靠一部手机整顿军宣。", "待作者确认")):
+                              ("江晨穿越到平行世界，靠一部手机整顿军宣。", "待作者确认"),
+                              ("江晨穿越到平行世界，靠一部手机整顿军宣。", "暂无")):
             with self.subTest(after=after):
                 self.assertTrue(errors(LONG.replace(before, after)))
+
+    def test_legitimate_words_and_inline_cover_fields_not_false_flagged(self):
+        natural_title = SHORT.replace("春风：第2年", "离婚后，律师建议我继承百亿家产")
+        self.assertEqual(errors(natural_title), [])
+        self.assertEqual(errors(SHORT.replace("春风：第2年", "婚期未定")), [])
+        natural_synopsis = LONG.replace(
+            "江晨穿越到平行世界，靠一部手机整顿军宣。",
+            "前路未定，手头暂无现钱的江晨推门进来，建议立刻封锁消息并重拟并购草案。",
+        )
+        self.assertEqual(errors(natural_synopsis), [])
+        inline_cover = LONG.replace(
+            "- 状态：提示词已生成，图片未生成\n- 提示词：\n````text\n## 画面构图\n```text\n山间春风\n```\n````\n- 图片：",
+            "- 状态：提示词：已生成；图片：未生成\n- 提示词：Chinese web novel cover, Color palette: deep blue, gold\n- 图片：D:\\小说\\封面\\封面_v1.png",
+        )
+        self.assertEqual(errors(inline_cover), [])
 
     def test_basics_order_and_choices(self):
         self.assertTrue(errors(LONG.replace("- 主角1：江晨\n", "")))
@@ -190,8 +250,7 @@ class PlatformRuleTests(unittest.TestCase):
             "fanqie-content-tags.md": {"情节": (144, 4), "情感": (58, 2), "人设": (94, 4), "世界观": (60, 1)},
         }
         for name, groups in expected.items():
-            options = checker.load_options(name)
-            self.assertEqual({key: (len(values), limit) for key, (values, limit) in options.items()}, groups, name)
+            self.assertEqual(load_options_summary(name), groups, name)
 
     def test_no_bundled_images(self):
         # Evidence screenshots stay in docs/; skill copies are deployed into every project.
@@ -202,10 +261,9 @@ class CliTests(unittest.TestCase):
     def test_unicode_path_readonly_and_exit_codes(self):
         with tempfile.TemporaryDirectory(prefix="publish check ") as directory:
             path = Path(directory) / "发布资料-番茄小说.md"
-            path.write_text("﻿" + LONG.replace("春风：第2年", "春" * 16), encoding="utf-8")
+            path.write_text("\ufeff" + LONG.replace("春风：第2年", "春" * 16), encoding="utf-8")
             before = path.read_bytes()
-            env = dict(os.environ, PYTHONUTF8="1", PYTHONDONTWRITEBYTECODE="1")
-            run = lambda: subprocess.run([sys.executable, str(SCRIPT), str(path)], capture_output=True, env=env)
+            run = lambda: subprocess.run(["node", str(SCRIPT), str(path)], capture_output=True)
             result = run()
             self.assertEqual(result.returncode, 0, result.stderr.decode("utf-8"))
             self.assertIn("WARN", result.stdout.decode("utf-8"))

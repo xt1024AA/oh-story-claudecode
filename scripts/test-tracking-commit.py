@@ -3,10 +3,10 @@
 
 from __future__ import annotations
 
-import importlib.util
 import hashlib
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -15,12 +15,23 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-TOOL = ROOT / "skills/story-long-write/scripts/tracking_commit.py"
-STORYCTL = ROOT / "skills/story-long-write/scripts/storyctl.py"
-STORYCTL_SPEC = importlib.util.spec_from_file_location("storyctl_tracking_tests", STORYCTL)
-assert STORYCTL_SPEC and STORYCTL_SPEC.loader
-storyctl = importlib.util.module_from_spec(STORYCTL_SPEC)
-STORYCTL_SPEC.loader.exec_module(storyctl)
+TOOL = ROOT / "skills/story-long-write/scripts/tracking_commit.js"
+STORYCTL = ROOT / "skills/story-long-write/scripts/storyctl.js"
+WORDCOUNT = ROOT / "skills/story-long-write/scripts/wordcount_core.js"
+NODE = shutil.which("node") or "node"
+
+
+def build_project_wordcount_record(project: Path, chapter: int, *, resolution: str) -> dict[str, object]:
+    script = (
+        'const wc = require(process.argv[1]);'
+        'const res = wc.buildProjectWordcountRecord(process.argv[2], Number(process.argv[3]), { resolution: process.argv[4] });'
+        'process.stdout.write(JSON.stringify(res));'
+    )
+    completed = subprocess.run(
+        [NODE, "-e", script, str(WORDCOUNT), str(project), str(chapter), resolution],
+        text=True, encoding="utf-8", capture_output=True, check=True,
+    )
+    return json.loads(completed.stdout)
 
 
 def position(*, volume: str = "第一卷·军宣整顿", start: int = 1) -> dict[str, object]:
@@ -163,9 +174,10 @@ class TrackingCommitTests(unittest.TestCase):
         command: str,
         document: dict[str, object] | None = None,
         *,
+        extra: list[str] | None = None,
         expect: int = 0,
     ) -> subprocess.CompletedProcess[str]:
-        args = [sys.executable, str(TOOL), command, "--project", str(self.project)]
+        args = [NODE, str(TOOL), command, "--project", str(self.project), *(extra or [])]
         if document is not None:
             document = json.loads(json.dumps(document, ensure_ascii=False))
             if command == "commit" and "expected_state_revision" not in document:
@@ -212,7 +224,7 @@ class TrackingCommitTests(unittest.TestCase):
         chapter = int(document["chapter"])
         if "expected_state_revision" not in document:
             document["expected_state_revision"] = self.read_state()["state_revision"]
-        document["wordcount"] = storyctl.build_project_wordcount_record(
+        document["wordcount"] = build_project_wordcount_record(
             self.project,
             chapter,
             resolution=resolution,
@@ -311,7 +323,7 @@ class TrackingCommitTests(unittest.TestCase):
             paths.append(path)
         processes = [
             subprocess.Popen(
-                [sys.executable, str(TOOL), "commit", "--project", str(self.project), "--input", str(path)],
+                [NODE, str(TOOL), "commit", "--project", str(self.project), "--input", str(path)],
                 text=True,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
@@ -340,19 +352,35 @@ class TrackingCommitTests(unittest.TestCase):
 
     def test_snapshot_target_warns_and_hard_cap_rejects_before_any_write(self) -> None:
         self.init()
-        warning = transaction(1, character=True)
-        warning["character_snapshots"]["江晨"] = snapshot(items=12, repeat=2)
+        over_old_cap = transaction(1, character=True)
+        over_old_cap["character_snapshots"]["江晨"] = snapshot(items=14, repeat=4)
+        completed = self.run_tool("commit", over_old_cap)
+        self.assertNotIn("WARNING: character snapshot 江晨", completed.stderr)
+        rendered_ch1 = (self.project / "追踪/角色状态/江晨.md").read_bytes()
+        self.assertGreater(len(rendered_ch1), 8192)
+        self.assertLessEqual(len(rendered_ch1), 16384)
+        self.assertEqual(len(self.read_state()["characters"]["江晨"]["knowledge"]), 14)
+        self.assertLessEqual(len((self.project / "追踪/上下文.md").read_bytes()), 12288)
+        self.run_tool("check")
+
+        warning = transaction(2, character=True)
+        warning["character_snapshots"]["江晨"] = snapshot(items=24, repeat=4)
         completed = self.run_tool("commit", warning)
         self.assertIn("WARNING: character snapshot 江晨", completed.stderr)
-        self.assertEqual(self.read_state()["state_revision"], 1)
+        self.assertIn("不影响本次提交", completed.stderr)
+        self.assertEqual(self.read_state()["state_revision"], 2)
+        self.run_tool("check")
 
-        rejected = transaction(2, character=True)
-        rejected["character_snapshots"]["江晨"] = snapshot(items=24, repeat=4)
+        rejected = transaction(3, character=True)
+        rejected["character_snapshots"]["江晨"] = snapshot(items=80, repeat=4)
         before = json.loads(json.dumps(self.read_state(), ensure_ascii=False))
+        snapshot_before = (self.project / "追踪/角色状态/江晨.md").read_bytes()
         completed = self.run_tool("commit", rejected, expect=2)
-        self.assertIn("hard cap of 8192 bytes", completed.stderr)
+        self.assertIn("exceeds hard cap of 65536 bytes", completed.stderr)
+        self.assertIn("能力与资源 80 项", completed.stderr)
         self.assertEqual(self.read_state(), before)
-        self.assertFalse((self.project / "追踪/逐章记录/第002章.md").exists())
+        self.assertEqual((self.project / "追踪/角色状态/江晨.md").read_bytes(), snapshot_before)
+        self.assertFalse((self.project / "追踪/逐章记录/第003章.md").exists())
 
     def test_missing_active_snapshot_is_rejected_before_any_write(self) -> None:
         self.init()
@@ -368,28 +396,34 @@ class TrackingCommitTests(unittest.TestCase):
 
     def test_partial_view_write_keeps_old_authority_and_same_transaction_can_retry(self) -> None:
         self.init()
-        module = load_tool_module()
         document = transaction(1, character=True, foreshadow=True, timeline=True)
         document["expected_state_revision"] = 0
-        original = module.atomic_write_text
-
-        def fail_on_foreshadow(path: Path, payload: str) -> None:
-            if path.name == "伏笔.md":
-                raise OSError("injected derived-view failure")
-            original(path, payload)
-
-        module.atomic_write_text = fail_on_foreshadow
-        with self.assertRaises(OSError):
-            module.apply_transaction(self.project, document)
+        fail_script = (
+            'const path = require("path");'
+            'const mod = require(process.argv[1]);'
+            'const doc = JSON.parse(process.argv[3]);'
+            'const orig = mod._hooks.atomicWriteText;'
+            'mod._hooks.atomicWriteText = (p, payload) => {'
+            '  if (path.basename(p) === "伏笔.md") { const e = new Error("injected derived-view failure"); e.code = "EIO"; throw e; }'
+            '  return orig(p, payload);'
+            '};'
+            'try { mod.applyTransaction(process.argv[2], doc); process.exit(1); }'
+            'catch (err) { if (err.message !== "injected derived-view failure") throw err; }'
+        )
+        completed = subprocess.run(
+            [NODE, "-e", fail_script, str(TOOL), str(self.project), json.dumps(document, ensure_ascii=False)],
+            text=True, encoding="utf-8", capture_output=True, check=False,
+        )
+        self.assertEqual(completed.returncode, 0, completed.stderr)
 
         self.assertEqual(self.read_state()["state_revision"], 0)
         self.assertIn("状态修订：1", (self.project / "追踪/上下文.md").read_text(encoding="utf-8"))
+        # An orphaned future chapter delta from a crashed transaction is a hard integrity error (exit 2).
         self.run_tool("check", expect=2)
 
-        module.atomic_write_text = original
-        module.apply_transaction(self.project, document)
+        self.run_tool("commit", document)
         self.assertEqual(self.read_state()["state_revision"], 1)
-        self.run_tool("check")
+        self.run_tool("check", extra=["--strict"])
 
     def test_stale_revision_cannot_overwrite_newer_state(self) -> None:
         self.init()
@@ -467,17 +501,28 @@ class TrackingCommitTests(unittest.TestCase):
 
         path = tracking / "角色状态/江晨.md"
         path.write_text("# 任意手改格式\n", encoding="utf-8")
-        result = self.run_tool("check", expect=2)
-        self.assertIn("derived view differs from _tracking-state.json", result.stderr)
+        # Default check softens manual edit to structured drift_warnings (exit 0) with author prompt.
+        soft = self.run_tool("check", expect=0)
+        payload = json.loads(soft.stdout)
+        self.assertEqual(len(payload["drift_warnings"]), 1)
+        self.assertEqual(payload["drift_warnings"][0]["type"], "view_drift")
+        self.assertIn("derived view differs from _tracking-state.json", payload["drift_warnings"][0]["message"])
+        self.assertIn("询问作者", payload["drift_warnings"][0]["prompt"])
+        # --strict explicitly enforces exit 2 on derived view drift.
+        strict_res = self.run_tool("check", extra=["--strict"], expect=2)
+        self.assertIn("derived view differs from _tracking-state.json", strict_res.stderr)
 
         self.run_tool("commit", transaction(2))
-        self.run_tool("check")
+        self.run_tool("check", extra=["--strict"])
 
     def test_check_rejects_orphan_character_file(self) -> None:
         self.init()
         orphan = self.project / "追踪/角色状态/CONFLICT.md"
         orphan.write_text("# orphan\n", encoding="utf-8")
-        result = self.run_tool("check", expect=2)
+        soft = self.run_tool("check", expect=0)
+        payload = json.loads(soft.stdout)
+        self.assertTrue(any(w["type"] == "character_files_drift" for w in payload["drift_warnings"]))
+        result = self.run_tool("check", extra=["--strict"], expect=2)
         self.assertIn("character snapshot files differ", result.stderr)
 
     def test_draft_prefills_current_context_so_only_the_delta_is_written(self) -> None:
@@ -485,7 +530,7 @@ class TrackingCommitTests(unittest.TestCase):
         (self.project / "大纲").mkdir(exist_ok=True)
         (self.project / "大纲" / "细纲_第001章.md").write_text("### 第 1 章：看片会\n", encoding="utf-8")
         completed = subprocess.run(
-            [sys.executable, str(TOOL), "draft", "--project", str(self.project), "--chapter", "1"],
+            [NODE, str(TOOL), "draft", "--project", str(self.project), "--chapter", "1"],
             text=True, capture_output=True, check=False, encoding="utf-8")
         self.assertEqual(completed.returncode, 0, completed.stderr)
         guide = json.loads(completed.stdout)
@@ -510,7 +555,7 @@ class TrackingCommitTests(unittest.TestCase):
         draft_path.write_text(json.dumps(draft, ensure_ascii=False), encoding="utf-8")
         # 重跑 draft 只刷新修订号，不冲掉已填内容。
         again = subprocess.run(
-            [sys.executable, str(TOOL), "draft", "--project", str(self.project), "--chapter", "1"],
+            [NODE, str(TOOL), "draft", "--project", str(self.project), "--chapter", "1"],
             text=True, capture_output=True, check=False, encoding="utf-8")
         self.assertEqual(again.returncode, 0, again.stderr)
         self.assertIn("原样保留", json.loads(again.stdout)["fill"])
@@ -592,7 +637,7 @@ class TrackingCommitTests(unittest.TestCase):
     def test_draft_shows_entry_shapes_from_the_validator_constants(self) -> None:
         self.init()
         completed = subprocess.run(
-            [sys.executable, str(TOOL), "draft", "--project", str(self.project), "--chapter", "1"],
+            [NODE, str(TOOL), "draft", "--project", str(self.project), "--chapter", "1"],
             text=True, capture_output=True, check=False, encoding="utf-8")
         self.assertEqual(completed.returncode, 0, completed.stderr)
         shapes = json.loads(completed.stdout)["shapes"]
@@ -610,7 +655,7 @@ class TrackingCommitTests(unittest.TestCase):
         self.init()
         (self.project / "大纲").mkdir(exist_ok=True)
         (self.project / "大纲" / "细纲_第001章.md").write_text("### 第 1 章：看片会\n", encoding="utf-8")
-        draft_cmd = [sys.executable, str(TOOL), "draft", "--project", str(self.project), "--chapter", "1"]
+        draft_cmd = [NODE, str(TOOL), "draft", "--project", str(self.project), "--chapter", "1"]
         first = subprocess.run(draft_cmd, text=True, capture_output=True, check=False, encoding="utf-8")
         draft_path = Path(json.loads(first.stdout)["draft"])
         state = self.read_state()
@@ -637,7 +682,7 @@ class TrackingCommitTests(unittest.TestCase):
         self.init()
         (self.project / "大纲").mkdir(exist_ok=True)
         (self.project / "大纲" / "细纲_第001章.md").write_text("### 第 1 章：看片会\n", encoding="utf-8")
-        draft_cmd = [sys.executable, str(TOOL), "draft", "--project", str(self.project), "--chapter", "1"]
+        draft_cmd = [NODE, str(TOOL), "draft", "--project", str(self.project), "--chapter", "1"]
         first = subprocess.run(draft_cmd, text=True, capture_output=True, check=False, encoding="utf-8")
         draft_path = Path(json.loads(first.stdout)["draft"])
         state = self.read_state()
@@ -662,7 +707,7 @@ class TrackingCommitTests(unittest.TestCase):
         self.init()
         self.run_tool("commit", transaction(1))
         # 修订草稿：中间可能插进新章并退役条目，旧草稿多出的条目不能自动带回。
-        draft_cmd = [sys.executable, str(TOOL), "draft", "--project", str(self.project), "--chapter", "1"]
+        draft_cmd = [NODE, str(TOOL), "draft", "--project", str(self.project), "--chapter", "1"]
         first = subprocess.run(draft_cmd, text=True, capture_output=True, check=False, encoding="utf-8")
         self.assertEqual(json.loads(first.stdout)["mode"], "revision")
         draft_path = Path(json.loads(first.stdout)["draft"])
@@ -686,7 +731,7 @@ class TrackingCommitTests(unittest.TestCase):
 
     def draft(self, chapter: int) -> tuple[dict[str, object], Path]:
         completed = subprocess.run(
-            [sys.executable, str(TOOL), "draft", "--project", str(self.project), "--chapter", str(chapter)],
+            [NODE, str(TOOL), "draft", "--project", str(self.project), "--chapter", str(chapter)],
             text=True, capture_output=True, check=False, encoding="utf-8")
         self.assertEqual(completed.returncode, 0, completed.stderr)
         guide = json.loads(completed.stdout)
@@ -824,11 +869,14 @@ class TrackingCommitTests(unittest.TestCase):
         document = transaction(1, foreshadow=True)
         document["delta"]["result"] = "江晨" * 100
         document["delta"]["foreshadow_changes"][0]["summary"] = "老兵" * 70
-        result = self.run_tool("commit", document, expect=2)
-        self.assertIn("2 个字段超长", result.stderr)
-        self.assertIn("delta.result exceeds 480 bytes（现 200 字，上限约 160 字，至少删 40 字）", result.stderr)
-        self.assertIn("summary exceeds 360 bytes（现 140 字，上限约 120 字，至少删 20 字）", result.stderr)
-        self.assertEqual(self.read_state()["last_committed_chapter"], 0)
+        result = self.run_tool("commit", document, expect=0)
+        payload = json.loads(result.stdout)
+        self.assertEqual(self.read_state()["last_committed_chapter"], 1)
+        self.assertIn("delta.result exceeds 480 bytes（现 200 字，建议上限约 160 字", result.stderr)
+        self.assertIn("summary exceeds 360 bytes（现 140 字，建议上限约 120 字", result.stderr)
+        self.assertTrue(any("delta.result exceeds 480 bytes" in w for w in payload["warnings"]))
+        self.assertTrue(any("summary exceeds 360 bytes" in w for w in payload["warnings"]))
+        self.run_tool("check", extra=["--strict"])
 
     def test_unknown_fields_are_rejected(self) -> None:
         invalid_init = initial_document()
@@ -1008,26 +1056,25 @@ class TrackingCommitTests(unittest.TestCase):
             document["character_snapshots"][name] = entry
         return document
 
-    def test_twenty_active_characters_pass_and_the_twenty_first_is_rejected_before_any_write(self) -> None:
-        result = self.run_tool("init", self.cast_document(21), expect=2)
-        self.assertIn("at most 20 names", result.stderr)
-        # 只允许留下加锁时建的空 追踪/ 目录。
-        self.assertFalse((self.project / "追踪/_tracking-state.json").exists())
-        self.assertFalse((self.project / "追踪/上下文.md").exists())
-        self.assertFalse((self.project / "追踪/角色状态").exists())
-
-        self.run_tool("init", self.cast_document(20))
-        context = (self.project / "追踪/上下文.md").read_text(encoding="utf-8")
-        self.assertIn("女主20｜", context)
-        self.run_tool("check")
+    def test_twenty_active_characters_pass_and_above_twenty_warns_without_blocking(self) -> None:
+        # >20 active characters and >6 constraints / >5 risks now emit structured warnings instead of hard exit 2.
+        over_init = self.cast_document(21)
+        over_init["context"]["long_term_constraints"] = [f"约束{i}" for i in range(7)]
+        over_init["context"]["continuity_risks"] = [f"风险{i}" for i in range(6)]
+        result = self.run_tool("init", over_init, expect=0)
+        payload = json.loads(result.stdout)
+        self.assertTrue(any("active_character_names has 21 names" in w for w in payload["warnings"]))
+        self.assertTrue(any("long_term_constraints has 7 items" in w for w in payload["warnings"]))
+        self.assertTrue(any("continuity_risks has 6 items" in w for w in payload["warnings"]))
+        self.run_tool("check", extra=["--strict"])
 
         overflow = transaction(1, character=True)
         overflow["context"]["active_character_names"] = self.read_state()["context"]["active_character_names"] + ["江晨"]
-        before = self.read_state()
-        result = self.run_tool("commit", overflow, expect=2)
-        self.assertIn("at most 20 names", result.stderr)
-        self.assertEqual(self.read_state(), before)
-        self.assertFalse((self.project / "追踪/逐章记录/第001章.md").exists())
+        overflow["context"]["long_term_constraints"] = self.read_state()["context"]["long_term_constraints"]
+        overflow["context"]["continuity_risks"] = self.read_state()["context"]["continuity_risks"]
+        commit_res = self.run_tool("commit", overflow, expect=0)
+        self.assertTrue(any("active_character_names has 22 names" in w for w in json.loads(commit_res.stdout)["warnings"]))
+        self.run_tool("check", extra=["--strict"])
 
     def test_existing_state_with_six_to_twenty_active_characters_still_checks_drafts_and_commits(self) -> None:
         # 旧版只收 6 人；作者改过脚本写下的 7–20 人 state，升级后必须照常 check / draft / commit。
@@ -1040,7 +1087,7 @@ class TrackingCommitTests(unittest.TestCase):
                 (self.project / "大纲").mkdir()
                 (self.project / "大纲" / "细纲_第001章.md").write_text("### 第 1 章：家宴\n", encoding="utf-8")
                 drafted = subprocess.run(
-                    [sys.executable, str(TOOL), "draft", "--project", str(self.project), "--chapter", "1"],
+                    [NODE, str(TOOL), "draft", "--project", str(self.project), "--chapter", "1"],
                     text=True, capture_output=True, check=False, encoding="utf-8")
                 self.assertEqual(drafted.returncode, 0, drafted.stderr)
                 draft_path = Path(json.loads(drafted.stdout)["draft"])
@@ -1054,28 +1101,303 @@ class TrackingCommitTests(unittest.TestCase):
                 self.assertEqual(len(state["context"]["active_character_names"]), count)
                 self.run_tool("check")
 
-    def test_hot_context_byte_cap_still_rejects_a_full_cast_before_any_write(self) -> None:
-        result = self.run_tool("init", self.cast_document(20, long_fields=True), expect=2)
-        self.assertIn("hot context exceeds 12288 bytes", result.stderr)
-        self.assertFalse((self.project / "追踪/_tracking-state.json").exists())
-        self.assertFalse((self.project / "追踪/上下文.md").exists())
-        self.assertFalse((self.project / "追踪/角色状态").exists())
+    def test_hot_context_soft_warns_above_12kb_and_hard_rejects_above_64kb(self) -> None:
+        # >12288B hot context now succeeds with structured warning; >65536B safety cap hard-rejects before any write.
+        soft_res = self.run_tool("init", self.cast_document(20, long_fields=True), expect=0)
+        self.assertIn("hot context is", soft_res.stderr)
+        self.assertIn("12288 bytes", soft_res.stderr)
+        self.assertTrue(any("12288 bytes" in w for w in json.loads(soft_res.stdout)["warnings"]))
+        self.run_tool("check", extra=["--strict"])
 
-        self.run_tool("init", self.cast_document(20))
-        grown = transaction(1)
+        # >65536B hot context still hard-rejects before writing anything.
+        huge = transaction(1)
         names = self.read_state()["context"]["active_character_names"]
-        grown["context"]["active_character_names"] = names
-        grown["delta"]["character_changes"] = [{"name": name, "change": "心思写满"} for name in names]
-        grown["character_snapshots"] = {
-            name: {**snapshot(), "identity": "身" * 80, "state": "状" * 100, "goal": "目" * 100} for name in names
-        }
+        huge["context"]["active_character_names"] = names
+        huge["context"]["long_term_constraints"] = self.read_state()["context"]["long_term_constraints"] + [
+            "超长约束" * 2000 for _ in range(3)
+        ]
         before = self.read_state()
         context_before = (self.project / "追踪/上下文.md").read_bytes()
-        result = self.run_tool("commit", grown, expect=2)
-        self.assertIn("hot context exceeds 12288 bytes", result.stderr)
+        result = self.run_tool("commit", huge, expect=2)
+        self.assertIn("exceeds hard cap of 65536 bytes", result.stderr)
         self.assertEqual(self.read_state(), before)
         self.assertEqual((self.project / "追踪/上下文.md").read_bytes(), context_before)
         self.assertFalse((self.project / "追踪/逐章记录/第001章.md").exists())
+
+    def test_snapshot_utf8_multibyte_boundary_and_list_item_limit(self) -> None:
+        self.init()
+        # 列表单项 >600 字节降为 warning，不再阻断提交。
+        long_item = transaction(1, character=True)
+        long_item["character_snapshots"]["江晨"]["abilities_resources"] = ["剑" * 201]
+        warned_item = self.run_tool("commit", long_item, expect=0)
+        self.assertIn("exceeds 600 bytes（现 201 字，建议上限约 200 字", warned_item.stderr)
+        self.assertEqual(self.read_state()["state_revision"], 1)
+
+        # 构造渲染后恰好 65536 UTF-8 字节（中文 3 字节 + ASCII 精确补齐）的快照：通过；再多 1 个汉字（+3 字节）即拒。
+        base_snap = {
+            "identity": "太虚宗执剑弟子",
+            "location": "寒鸦关石室",
+            "goal": "护送残卷回宗",
+            "state": "灵力存六成",
+            "abilities_resources": ["剑" * 200 for _ in range(100)],
+            "relationships": ["盟" * 10],
+            "knowledge": ["秘" * 10],
+            "open_threads": ["债" * 10],
+        }
+        probe = transaction(2, character=True)
+        probe["character_snapshots"]["江晨"] = json.loads(json.dumps(base_snap, ensure_ascii=False))
+        self.run_tool("commit", probe)
+        current_bytes = len((self.project / "追踪/角色状态/江晨.md").read_bytes())
+        # 第 3 章提交时 revision 从 2 变成 3（位数相同，字节差仅来自新增列表项）。
+        remaining = 65536 - current_bytes
+        exact_snap = json.loads(json.dumps(base_snap, ensure_ascii=False))
+        while remaining > 603:
+            exact_snap["knowledge"].append("剑" * 200)
+            remaining -= 603
+        self.assertGreater(remaining, 10)
+        payload_budget = remaining - 3
+        cjk_count, ascii_rem = divmod(payload_budget, 3)
+        exact_item = ("阵" * cjk_count) if ascii_rem == 0 else ("阵" * cjk_count + "A" * ascii_rem)
+        exact_snap["knowledge"].append(exact_item)
+        exact_tx = transaction(3, character=True)
+        exact_tx["character_snapshots"]["江晨"] = exact_snap
+        self.run_tool("commit", exact_tx)
+        snapshot_file = self.project / "追踪/角色状态/江晨.md"
+        self.assertEqual(len(snapshot_file.read_bytes()), 65536)
+        self.assertLess(len(snapshot_file.read_text(encoding="utf-8")), 25000)
+        self.run_tool("check", extra=["--strict"])
+
+        over_by_one_hanzi = json.loads(json.dumps(exact_snap, ensure_ascii=False))
+        over_by_one_hanzi["open_threads"][0] = over_by_one_hanzi["open_threads"][0] + "多"
+        over_tx = transaction(4, character=True)
+        over_tx["character_snapshots"]["江晨"] = over_by_one_hanzi
+        before = self.read_state()
+        rejected = self.run_tool("commit", over_tx, expect=2)
+        self.assertIn("65539 bytes", rejected.stderr)
+        self.assertIn("exceeds hard cap of 65536 bytes", rejected.stderr)
+        self.assertEqual(self.read_state(), before)
+        self.assertEqual(len(snapshot_file.read_bytes()), 65536)
+        self.assertFalse((self.project / "追踪/逐章记录/第004章.md").exists())
+
+    def test_multi_character_accumulation_draft_files_revision_and_reactivation_across_copies(self) -> None:
+        # 1. init 一次性汇总多字段超长，修正后导入含大快照与非在场核心角色的 60 章存量项目。
+        def rich_snapshot(tag: str, count: int) -> dict[str, object]:
+            return {
+                "identity": f"{tag}·北境镇魔司执令使",
+                "location": "寒鸦关地下古阵石室",
+                "goal": f"{tag}查清阵眼被蚀真相并稳住根基",
+                "state": f"{tag}寒毒压于奇经但战力尚存七成",
+                "abilities_resources": [f"{tag}功法器物{i:02d}：玄铁剑诀第{i}式与灵矿密牒（第{i}章所得，剩余三次）" for i in range(1, count + 1)],
+                "relationships": [f"{tag}关键关系{i:02d}：与守关将领及暗桩第{i}号结盟互保但留底牌" for i in range(1, count + 1)],
+                "knowledge": [f"{tag}已知情报{i:02d}：确认军粮账册第{i}页篡改牵涉兵部侍郎走私链" for i in range(1, count + 1)],
+                "open_threads": [f"{tag}未结事项{i:02d}：月底前核查第{i}批失踪斥候并归还古阵盘" for i in range(1, max(4, count // 2) + 1)],
+            }
+
+        bad_init = initial_document(last_chapter=60)
+        bad_init["schema_version"] = 99
+        bad_res = self.run_tool("init", bad_init, expect=2)
+        self.assertIn("schema_version is unsupported", bad_res.stderr)
+        self.assertFalse((self.project / "追踪/_tracking-state.json").exists())
+
+        init_doc = initial_document(last_chapter=60)
+        init_doc["context"]["active_character_names"] = ["沈砚", "钟离"]
+        init_doc["character_snapshots"] = {
+            "沈砚": rich_snapshot("沈砚", 40),
+            "钟离": rich_snapshot("钟离", 28),
+            "顾长渊": rich_snapshot("顾长渊", 28),  # 久别非在场核心角色
+        }
+        self.run_tool("init", init_doc)
+        self.assertGreater(len((self.project / "追踪/角色状态/沈砚.md").read_bytes()), 12000)
+        self.assertGreater(len((self.project / "追踪/角色状态/顾长渊.md").read_bytes()), 8192)
+        self.run_tool("check")
+
+        # 2. 第 61 章继续累积使沈砚突破 16 KiB 内联阈值；第 62 章 draft 验证 stdout 受控且久别角色顾长渊可从 snapshot_files 取回。
+        ch61 = transaction(61)
+        grown_shen = rich_snapshot("沈砚", 70)
+        ch61["delta"]["character_changes"] = [{"name": "沈砚", "change": "破入石室深层并掌握新阵纹线索"}]
+        ch61["context"]["active_character_names"] = ["沈砚", "钟离"]
+        ch61["character_snapshots"] = {"沈砚": grown_shen}
+        self.run_tool("commit", ch61)
+        self.assertGreater(len((self.project / "追踪/角色状态/沈砚.md").read_bytes()), 20000)
+
+        (self.project / "大纲").mkdir(exist_ok=True)
+        (self.project / "正文").mkdir(exist_ok=True)
+        (self.project / "大纲/细纲_第062章.md").write_text(
+            "### 第 62 章：驰援西营\n- 字数目标：1000 字\n- 字数口径：visible_chars_v1\n",
+            encoding="utf-8",
+        )
+        guide62, draft62_path = self.draft(62)
+        self.assertIn("沈砚", guide62.get("omitted_active_snapshots", []))
+        self.assertNotIn("沈砚", guide62["current_snapshots"])
+        self.assertIn("钟离", guide62["current_snapshots"])
+        snapshot_files = guide62["snapshot_files"]
+        self.assertEqual(set(snapshot_files), {"沈砚", "钟离", "顾长渊"})
+        gu_from_disk = json.loads(Path(snapshot_files["顾长渊"]).read_text(encoding="utf-8"))
+        self.assertEqual(gu_from_disk, init_doc["character_snapshots"]["顾长渊"])
+
+        # 久别核心角色顾长渊本章变化但漏交快照时，报错明确指路 current_snapshots / snapshot_files 且不写盘。
+        draft62 = json.loads(draft62_path.read_text(encoding="utf-8"))
+        draft62["delta"]["result"] = "顾长渊驰援寒鸦关，与沈砚合破妖族暗桩。"
+        draft62["delta"]["character_changes"] = [{"name": "顾长渊", "change": "驰援寒鸦关并交出南境密信"}]
+        draft62["context"]["position"].update({"story_time": "风雪第四夜", "scene": "寒鸦关西营"})
+        draft62["context"]["active_character_names"] = ["沈砚", "钟离", "顾长渊"]
+        missing_gu = self.run_tool("commit", draft62, expect=2)
+        self.assertIn("snapshot_files", missing_gu.stderr)
+        self.assertEqual(self.read_state()["last_committed_chapter"], 61)
+
+        # 通过 storyctl.py chapter commit 正式提交第 62 章，验证工作目录连同 snapshots/ 自动清理。
+        (self.project / "正文/第062章_驰援西营.md").write_text(
+            "# 第062章 驰援西营\n"
+            + "\n".join(f"顾长渊在西营核对第{i}册军械账目，沈砚旁证北境第{i}道暗桩口供。" for i in range(1, 36))
+            + "\n",
+            encoding="utf-8",
+        )
+        gu_from_disk["knowledge"].append("顾长渊新知：西营军械库暗门已被妖族识破")
+        draft62["character_snapshots"] = {"顾长渊": gu_from_disk}
+        draft62_path.write_text(json.dumps(draft62, ensure_ascii=False), encoding="utf-8")
+        storyctl_commit = subprocess.run(
+            [
+                NODE, str(STORYCTL), "chapter", "commit",
+                "--project", str(self.project), "--chapter", "62", "--input", str(draft62_path),
+            ],
+            text=True, capture_output=True, check=False, encoding="utf-8",
+        )
+        self.assertEqual(storyctl_commit.returncode, 0, storyctl_commit.stdout + storyctl_commit.stderr)
+        self.assertFalse((self.project / ".story/work/第062章").exists())
+        self.assertEqual(len(self.read_state()["characters"]["顾长渊"]["knowledge"]), 29)
+
+        # 3. 修订第 61 章：预填完整 >20KB 快照，不丢任何条目；意外清空列表时给出非阻断提醒，完结 open_threads 不误报。
+        _, rev61_path = self.draft(61)
+        rev61 = json.loads(rev61_path.read_text(encoding="utf-8"))
+        self.assertEqual(len(rev61["character_snapshots"]["沈砚"]["abilities_resources"]), 70)
+        rev61["character_snapshots"]["沈砚"]["open_threads"] = []
+        ok_clear_threads = self.run_tool("commit", rev61)
+        self.assertNotIn("清空成了空列表", ok_clear_threads.stderr)
+
+        rev61_wipe = json.loads(json.dumps(rev61, ensure_ascii=False))
+        rev61_wipe["expected_state_revision"] = self.read_state()["state_revision"]
+        rev61_wipe["character_snapshots"]["沈砚"]["knowledge"] = []
+        warned_wipe = self.run_tool("commit", rev61_wipe)
+        self.assertIn("WARNING: 角色快照「沈砚」把 已知信息（原有 70 项） 清空成了空列表", warned_wipe.stderr)
+        # 恢复完整快照确保后续全量保真
+        rev61["expected_state_revision"] = self.read_state()["state_revision"]
+        rev61["character_snapshots"]["沈砚"]["open_threads"] = grown_shen["open_threads"]
+        self.run_tool("commit", rev61)
+        self.assertEqual(self.read_state()["characters"]["沈砚"], grown_shen)
+
+        # 4. 退役钟离后再重新激活并写入 >10KB 快照，且长篇/导入/审查三份部署脚本 check 一致通过。
+        retire63 = transaction(63)
+        retire63["delta"]["character_changes"] = [{"name": "钟离", "change": "奉命秘密赴京述职，暂离北境线"}]
+        retire63["delta"]["retired_characters"] = ["钟离"]
+        retire63["context"]["active_character_names"] = ["沈砚", "顾长渊"]
+        self.run_tool("commit", retire63)
+        self.assertFalse((self.project / "追踪/角色状态/钟离.md").exists())
+        guide64, _ = self.draft(64)
+        self.assertNotIn("钟离", guide64["snapshot_files"])
+        self.assertFalse((self.project / ".story/work/第064章/snapshots/钟离.json").exists())
+
+        reactivate64 = transaction(64)
+        returned_zhongli = rich_snapshot("钟离京城归来", 36)
+        reactivate64["delta"]["character_changes"] = [{"name": "钟离", "change": "携兵部尚书密旨重返寒鸦关"}]
+        reactivate64["context"]["active_character_names"] = ["沈砚", "顾长渊", "钟离"]
+        reactivate64["character_snapshots"] = {"钟离": returned_zhongli}
+        self.run_tool("commit", reactivate64)
+        self.assertGreater(len((self.project / "追踪/角色状态/钟离.md").read_bytes()), 11000)
+
+        for copy_rel in (
+            "skills/story-long-write/scripts/tracking_commit.js",
+            "skills/story-import/scripts/tracking_commit.js",
+            "skills/story-review/scripts/tracking_commit.js",
+        ):
+            checked = subprocess.run(
+                [NODE, str(ROOT / copy_rel), "check", "--project", str(self.project)],
+                text=True, capture_output=True, check=False, encoding="utf-8",
+            )
+            self.assertEqual(checked.returncode, 0, f"{copy_rel}: {checked.stderr}")
+
+    def test_crlf_derived_views_and_idempotent_append_retry(self) -> None:
+        self.init()
+        tx = transaction(1, character=True)
+        self.run_tool("commit", tx)
+        # Simulate Windows CRLF line endings in derived views and delta file
+        ctx_path = self.project / "追踪/上下文.md"
+        ctx_crlf = ctx_path.read_text(encoding="utf-8").replace("\n", "\r\n")
+        ctx_path.write_bytes(ctx_crlf.encode("utf-8"))
+        self.run_tool("check")
+
+        # Also simulate CRLF on an already-written chapter delta during append retry
+        state_before_ch2 = (self.project / "追踪/_tracking-state.json").read_bytes()
+        delta_path = self.project / "追踪/逐章记录/第002章.md"
+        tx2 = transaction(2, character=True)
+        self.run_tool("commit", tx2)
+        delta_crlf = delta_path.read_text(encoding="utf-8").replace("\n", "\r\n")
+        # Restore state to before chapter 2 while leaving CRLF delta for chapter 2 on disk
+        (self.project / "追踪/_tracking-state.json").write_bytes(state_before_ch2)
+        delta_path.write_bytes(delta_crlf.encode("utf-8"))
+        tx2_retry = transaction(2, character=True)
+        self.run_tool("commit", tx2_retry)
+        self.run_tool("check")
+
+    def test_draft_matches_unpadded_outline_and_writes_atomically(self) -> None:
+        self.init()
+        (self.project / "大纲").mkdir(exist_ok=True)
+        (self.project / "大纲/细纲_第1章.md").write_text(
+            "### 第 1 章：夜雨来客\n- 字数目标：2000 字\n",
+            encoding="utf-8",
+        )
+        _, draft_path = self.draft(1)
+        doc = json.loads(draft_path.read_text(encoding="utf-8"))
+        self.assertEqual(doc["chapter_title"], "夜雨来客")
+        leftovers = list(draft_path.parent.glob("*.tmp"))
+        self.assertEqual(leftovers, [], f"atomic draft write left temp files: {leftovers}")
+
+    def test_delta_soft_warns_above_3kb_and_hard_rejects_above_64kb(self) -> None:
+        self.init()
+        over_3k = transaction(1)
+        over_3k["delta"]["result"] = "江" * 1200  # ~3600 bytes > 3072B
+        res = self.run_tool("commit", over_3k, expect=0)
+        payload = json.loads(res.stdout)
+        self.assertTrue(any("3072 bytes" in w for w in payload["warnings"]))
+        self.assertIn("WARNING: chapter delta is", res.stderr)
+        self.run_tool("check", extra=["--strict"])
+
+        over_64k = transaction(2)
+        over_64k["delta"]["result"] = "江" * 23000  # ~69000 bytes > 65536B
+        before = self.read_state()
+        rejected = self.run_tool("commit", over_64k, expect=2)
+        self.assertIn("exceeds hard cap of 65536 bytes", rejected.stderr)
+        self.assertEqual(self.read_state(), before)
+
+    def test_allow_gap_permits_intentional_out_of_order_append_while_default_guards_typos(self) -> None:
+        self.init()
+        self.run_tool("commit", transaction(1))
+        # Default append rejects chapter 3 after chapter 1 (typo protection).
+        blocked = self.run_tool("commit", transaction(3), expect=2)
+        self.assertIn("append chapter must be 2, got 3", blocked.stderr)
+        self.assertIn("--allow-gap", blocked.stderr)
+
+        # With --allow-gap, draft & commit for chapter 3 succeed with a clear gap warning.
+        draft3 = subprocess.run(
+            [NODE, str(TOOL), "draft", "--project", str(self.project), "--chapter", "3", "--allow-gap"],
+            text=True, capture_output=True, check=False, encoding="utf-8",
+        )
+        self.assertEqual(draft3.returncode, 0, draft3.stderr)
+        self.assertEqual(json.loads(draft3.stdout)["mode"], "append")
+
+        gap_commit = self.run_tool("commit", transaction(3), extra=["--allow-gap"], expect=0)
+        gap_payload = json.loads(gap_commit.stdout)
+        self.assertEqual(gap_payload["last_committed_chapter"], 3)
+        self.assertTrue(any("跳章提交" in w for w in gap_payload["warnings"]))
+
+        # Default check exits 0 with missing_delta drift warning; --strict fails exit 2.
+        soft_check = json.loads(self.run_tool("check", expect=0).stdout)
+        self.assertTrue(any(w["type"] == "missing_delta" and w["chapter"] == 2 for w in soft_check["drift_warnings"]))
+        self.run_tool("check", extra=["--strict"], expect=2)
+
+        # Backfilling skipped chapter 2 via --allow-gap restores strict check cleanliness.
+        backfill = self.run_tool("commit", transaction(2), extra=["--allow-gap"], expect=0)
+        self.assertEqual(json.loads(backfill.stdout)["last_committed_chapter"], 3)
+        self.run_tool("check", extra=["--strict"])
 
 
 if __name__ == "__main__":

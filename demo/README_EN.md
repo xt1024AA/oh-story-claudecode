@@ -81,7 +81,7 @@ demo/长篇/让你管账号，你高燃混剪炸全网/
                  角色状态/{角色名}.md · 时间线/{作者真相.md · 读者已知.md}
 ```
 
-Per-chapter extraction (events / characters / settings / foreshadowing / timeline) is reverse-engineered into a continuation bible, so the author seamlessly continues from chapter 21.
+Per-chapter extraction (events / characters / settings / foreshadowing / timeline) is turned into a continuation project, so the author can pick up directly at chapter 21.
 
 ## Published continuation artifacts
 
@@ -93,6 +93,6 @@ Per-chapter extraction (events / characters / settings / foreshadowing / timelin
 | [`设定/角色/陆振国.md`](长篇/让你管账号，你高燃混剪炸全网/设定/角色/陆振国.md) · [`大纲/卷纲_第1卷.md`](长篇/让你管账号，你高燃混剪炸全网/大纲/卷纲_第1卷.md) · [`设定/关系.md`](长篇/让你管账号，你高燃混剪炸全网/设定/关系.md) | What the author's one-line ruling at the end of the video ("the sceptic is a military-affairs influencer") turned into: a new character card, plus the volume outline and relationship table updated to match (second session, 6½ minutes) |
 | [`去AI味对照/`](去AI味对照/README_EN.md) | Real scan output from the `/story-deslop` checker: 8 findings on an AI-flavored sample vs zero on the clean rewrite |
 
-> `追踪/` was advanced to chapter 21 by the skill itself, in the same real session, through `storyctl.py chapter commit`
+> `追踪/` was advanced to chapter 21 by the skill itself, in the same real session, through `storyctl.js chapter commit`
 > (`state_revision` 0 → 1); every derived view is re-rendered from `_tracking-state.json`. `.deslop-whitelist` was also
 > registered by the skill after reading `设定/文风.md`.

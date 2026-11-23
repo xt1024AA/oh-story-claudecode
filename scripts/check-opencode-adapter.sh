@@ -231,20 +231,19 @@ write_agent(link_src / "a.md", "a")
 (external / "a.md").write_text("external sentinel\n", encoding="utf-8")
 try:
     (link_dst / "agents").symlink_to(external, target_is_directory=True)
-except (OSError, NotImplementedError):
-    # Windows 无创建符号链接特权时是 WinError 1314；这一子用例在本机不可表示，
-    # 前面关于回滚的断言已经跑过，这里只跳过 symlink 目录这一条，CI 上仍然校验。
-    print("  SKIP symlinked agents directory case（本机无创建符号链接的特权）")
-    raise SystemExit(0)
-before_external = snapshot(external)
-try:
-    run_normal(link_root)
-except ValueError:
-    pass
+except OSError as exc:
+    # Windows 未开开发者模式时 symlink 需要特权（WinError 1314），fixture 建不出来就跳过。
+    print(f"  SKIP symlinked agents fixture unavailable on this filesystem: {exc}")
 else:
-    raise SystemExit("sync-opencode must reject a symlinked agents directory")
-if snapshot(external) != before_external:
-    raise SystemExit("sync-opencode followed agents symlink and modified external files")
+    before_external = snapshot(external)
+    try:
+        run_normal(link_root)
+    except ValueError:
+        pass
+    else:
+        raise SystemExit("sync-opencode must reject a symlinked agents directory")
+    if snapshot(external) != before_external:
+        raise SystemExit("sync-opencode followed agents symlink and modified external files")
 PY
 
 echo "  OK OpenCode generated-file failures roll back without replacing the adapter root"
@@ -684,7 +683,7 @@ PY
 assert_grep 'permissions:` 规则列表' "$REPO_ROOT/skills/story-review/SKILL.md" "story-review must validate OpenCode 2.x agents by their permissions: list"
 # #242: runtime behavioral test — loads plugin.ts against the deployed core layout (lib/) and
 # exercises ctx.location, the execute.before/after and compaction hooks. The core's byte identity is
-# owned by check-shared-files.sh; its net/guard semantics by test-prose-net-parity.sh.
+# owned by sync-shared-assets.py check; its net/guard semantics by test-story-hook-core.mjs.
 node --experimental-strip-types scripts/test-opencode-plugin.mjs
 assert_grep 'AGENTS\.md|OpenCode' "$ROOT/AGENTS.md.tmpl" "OpenCode AGENTS template must be present"
 assert_grep 'story-long-write|story-short-write|story-review' "$ROOT/AGENTS.md.tmpl" "OpenCode AGENTS template must mention story skill routing"

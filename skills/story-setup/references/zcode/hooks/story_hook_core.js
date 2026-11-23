@@ -4,10 +4,76 @@ const fs = require("node:fs")
 const path = require("node:path")
 const { spawnSync } = require("node:child_process")
 
+const CURRENT_AGENTS_VERSION = 45
+
+function readSentinel(root) {
+  const file = path.join(root, ".story-deployed")
+  if (!fs.existsSync(file)) return null
+  let text = ""
+  try {
+    text = fs.readFileSync(file, "utf8")
+  } catch {
+    return {}
+  }
+  const fields = {}
+  for (const rawLine of text.split(/\r?\n/)) {
+    const idx = rawLine.indexOf(":")
+    if (idx <= 0) continue
+    const key = rawLine.slice(0, idx).trim()
+    if (!key || Object.prototype.hasOwnProperty.call(fields, key)) continue
+    let value = rawLine.slice(idx + 1).trim()
+    if (value.length >= 2 && ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'")))) {
+      value = value.slice(1, -1).trim()
+    }
+    fields[key] = value
+  }
+  return fields
+}
+
+function agentsVersionNotice(root, options = {}) {
+  const sentinel = options.sentinel !== undefined ? options.sentinel : readSentinel(root)
+  if (sentinel === null) return ""
+  const setupCmd = options.setupCommand || "/story-setup"
+  const versionRaw = sentinel.agents_version || ""
+  if (!/^[0-9]+$/.test(versionRaw)) {
+    return `[WARN] .story-deployed 缺少数字 agents_version。重新运行 ${setupCmd}。`
+  }
+  const version = Number.parseInt(versionRaw, 10)
+  if (version < CURRENT_AGENTS_VERSION) {
+    return `[WARN] story-setup agents_version=${version} 低于 v${CURRENT_AGENTS_VERSION}。重新运行 ${setupCmd} 刷新 hooks、agents 和 references（部署后需新开会话）。`
+  }
+  if (version > CURRENT_AGENTS_VERSION) {
+    return `[WARN] story-setup agents_version=${version} 高于本 hook 支持的 v${CURRENT_AGENTS_VERSION}。不要降级覆盖；请先更新 oh-story-claudecode。`
+  }
+  return ""
+}
+
+function realpathNative(value) {
+  return typeof fs.realpathSync.native === "function"
+    ? fs.realpathSync.native(value)
+    : fs.realpathSync(value)
+}
+
+function canonicalPath(value) {
+  let cur = path.resolve(value)
+  const tail = []
+  while (true) {
+    try {
+      const real = realpathNative(cur)
+      return tail.length ? path.join(real, ...tail.reverse()) : real
+    } catch {
+      const parent = path.dirname(cur)
+      if (parent === cur) return path.resolve(value)
+      tail.push(path.basename(cur))
+      cur = parent
+    }
+  }
+}
+
 function existingDir(value) {
   if (typeof value !== "string" || !value.trim()) return null
   try {
-    const resolved = fs.realpathSync(path.resolve(value))
+    const resolved = realpathNative(path.resolve(value))
     return fs.statSync(resolved).isDirectory() ? resolved : null
   } catch {
     return null
@@ -16,8 +82,13 @@ function existingDir(value) {
 
 function safeRelative(root, target) {
   try {
+    const isInsideRel = (rel) =>
+      Boolean(rel) && rel !== ".." && !rel.startsWith(`..${path.sep}`) && !path.isAbsolute(rel)
     const rel = path.relative(path.resolve(root), path.resolve(target))
-    return rel && !rel.startsWith("..") ? rel.split(path.sep).join("/") : String(target)
+    if (isInsideRel(rel)) return rel.split(path.sep).join("/")
+    const canonRel = path.relative(canonicalPath(root), canonicalPath(target))
+    if (isInsideRel(canonRel)) return canonRel.split(path.sep).join("/")
+    return String(target)
   } catch {
     return String(target)
   }
@@ -25,7 +96,9 @@ function safeRelative(root, target) {
 
 function resolveTarget(root, target, base = root) {
   const normalized = String(target || "").replace(/\\/g, "/")
-  return path.isAbsolute(normalized) ? path.resolve(normalized) : path.resolve(base || root, normalized)
+  if (path.isAbsolute(normalized)) return path.resolve(normalized)
+  if (/^[A-Za-z]:\//.test(normalized)) return "/" + path.win32.normalize(normalized).replace(/\\/g, "/")
+  return path.resolve(base || root, normalized)
 }
 
 function firstLine(file) {
@@ -34,6 +107,12 @@ function firstLine(file) {
   } catch {
     return ""
   }
+}
+
+const SKIP_DISCOVERY_DIRS = new Set(["node_modules", "拆文库", "对标"])
+
+function isSkippedDiscoveryEntry(name) {
+  return name.startsWith(".") || SKIP_DISCOVERY_DIRS.has(name)
 }
 
 function findFirst(base, maxDepth, predicate) {
@@ -46,13 +125,13 @@ function findFirst(base, maxDepth, predicate) {
     return null
   }
   for (const entry of entries) {
-    if (entry.name.startsWith(".") || entry.name === "node_modules") continue
+    if (isSkippedDiscoveryEntry(entry.name)) continue
     const full = path.join(base, entry.name)
     if (predicate(full, entry)) return full
   }
   if (maxDepth === 1) return null
   for (const entry of entries) {
-    if (!entry.isDirectory() || entry.name.startsWith(".") || entry.name === "node_modules") continue
+    if (!entry.isDirectory() || isSkippedDiscoveryEntry(entry.name)) continue
     const found = findFirst(path.join(base, entry.name), maxDepth - 1, predicate)
     if (found) return found
   }
@@ -87,7 +166,7 @@ function discoverAllBooks(root) {
     let entries = []
     try { entries = fs.readdirSync(base, { withFileTypes: true }) } catch { return }
     for (const entry of entries) {
-      if (entry.name.startsWith(".") || entry.name === "node_modules") continue
+      if (isSkippedDiscoveryEntry(entry.name)) continue
       const full = path.join(base, entry.name)
       if (entry.isDirectory() && (entry.name === "追踪" || entry.name === "正文")) {
         books.set(path.dirname(full), path.dirname(full))
@@ -97,7 +176,7 @@ function discoverAllBooks(root) {
     }
     if (depth === 1) return
     for (const entry of entries) {
-      if (!entry.isDirectory() || entry.name.startsWith(".") || entry.name === "node_modules") continue
+      if (!entry.isDirectory() || isSkippedDiscoveryEntry(entry.name)) continue
       walk(path.join(base, entry.name), depth - 1)
     }
   }
@@ -105,25 +184,47 @@ function discoverAllBooks(root) {
   return [...books.values()]
 }
 
-function trackingCheckpointIssue(book, requireState = false, expectedLastCommitted = null) {
+function inspectTrackingCheckpoint(book, requireState = false, expectedLastCommitted = null) {
   const state = path.join(book, "追踪", "_tracking-state.json")
   if (!fs.existsSync(state)) {
-    return requireState
-      ? `追踪/_tracking-state.json 缺失；已有正文项目走 /story-import 的「旧追踪项目迁移」重建追踪（不必重跑全书拆解），新书先用 tracking_commit.py init 初始化`
-      : null
+    return {
+      hard: requireState
+        ? `追踪/_tracking-state.json 缺失；已有正文项目走 /story-import 的「旧追踪项目迁移」重建追踪（不必重跑全书拆解），新书先用 tracking_commit.js init 初始化`
+        : null,
+      warnings: [],
+    }
   }
   let document
   try {
     document = JSON.parse(fs.readFileSync(state, "utf8"))
   } catch {
-    return `追踪/_tracking-state.json 无法解析；停止写正文并重新 /story-import，不能猜测或手补状态`
+    return {
+      hard: `追踪/_tracking-state.json 无法解析；停止写正文并重新 /story-import，不能猜测或手补状态`,
+      warnings: [],
+    }
   }
   if (!document || typeof document !== "object" || Array.isArray(document) || document.schema_version !== 4) {
-    return `追踪/_tracking-state.json 不是当前 schema_version=4；停止写正文并重新 /story-import，不保留旧结构兼容路径`
+    return {
+      hard: `追踪/_tracking-state.json 不是当前 schema_version=4；停止写正文并重新 /story-import，不保留旧结构兼容路径`,
+      warnings: [],
+    }
   }
   if (!Number.isInteger(document.state_revision)) {
-    return `追踪/_tracking-state.json 缺少整数 state_revision；停止写正文并重新 /story-import`
+    return {
+      hard: `追踪/_tracking-state.json 缺少整数 state_revision；停止写正文并重新 /story-import`,
+      warnings: [],
+    }
   }
+  if (expectedLastCommitted !== null && !Number.isInteger(document.last_committed_chapter)) {
+    return {
+      hard: `追踪/_tracking-state.json 缺少整数 last_committed_chapter；停止写正文并重新 /story-import`,
+      warnings: [],
+    }
+  }
+
+  // 以下两项属协作/创作灵活性信号（作者可能手工改了追踪笔记或有意跳章起草），不作硬拦截，
+  // 改由软门禁提醒 Agent 重点核实后再决定是否重建派生视图或补提交前一章。
+  const warnings = []
   const context = path.join(book, "追踪", "上下文.md")
   let contextRevision = null
   try {
@@ -132,20 +233,23 @@ function trackingCheckpointIssue(book, requireState = false, expectedLastCommitt
   } catch {}
   if (contextRevision !== document.state_revision) {
     const shown = contextRevision === null ? "缺失" : contextRevision
-    return `追踪/上下文.md 状态修订 ${shown} 与 _tracking-state.json 的 ${document.state_revision} 不一致；重新提交该章的 mode=revision 事务重建派生视图（expected_state_revision 取 追踪/_tracking-state.json 的 state_revision 字段（check 失败时不输出 JSON））`
+    warnings.push(
+      `追踪/上下文.md 状态修订 ${shown} 与 _tracking-state.json 的 ${document.state_revision} 不一致——请核实作者是否手工编辑了追踪文件；如需按 JSON 重建派生视图，再提交 mode=revision 事务（expected_state_revision 取 追踪/_tracking-state.json 的 state_revision 字段）`
+    )
   }
   if (expectedLastCommitted !== null) {
-    if (!Number.isInteger(document.last_committed_chapter)) {
-      return `追踪/_tracking-state.json 缺少整数 last_committed_chapter；停止写正文并重新 /story-import`
-    }
-    // 章号已在追踪范围内 = 回炉/改名/留原稿备份，不是首建新章：文件名新但章节早已提交过，
-    // 顺序校验对它恒为假（workflow-revision 的「备份原稿」步骤必然命中），跳过。
-    if (expectedLastCommitted < document.last_committed_chapter) return null
-    if (document.last_committed_chapter !== expectedLastCommitted) {
-      return `追踪已提交到第${document.last_committed_chapter}章，首建第${expectedLastCommitted + 1}章前必须先提交第${expectedLastCommitted}章追踪事务`
+    // 章号已在追踪范围内 = 回炉/改名/留原稿备份，不是首建新章：跳过顺序提醒。
+    if (expectedLastCommitted >= document.last_committed_chapter && document.last_committed_chapter !== expectedLastCommitted) {
+      warnings.push(
+        `追踪已提交到第${document.last_committed_chapter}章，现在首建第${expectedLastCommitted + 1}章——请确认这是否为作者有意跳章起草；若漏提交第${expectedLastCommitted}章，建议先补提交第${expectedLastCommitted}章追踪事务再继续`
+      )
     }
   }
-  return null
+  return { hard: null, warnings }
+}
+
+function trackingCheckpointIssue(book, requireState = false, expectedLastCommitted = null) {
+  return inspectTrackingCheckpoint(book, requireState, expectedLastCommitted).hard
 }
 
 function continuityFindings(root) {
@@ -160,9 +264,12 @@ function continuityFindings(root) {
     } catch {}
 
     const context = path.join(book, "追踪", "上下文.md")
-    const checkpointIssue = trackingCheckpointIssue(book, chapters.length > 0)
-    if (checkpointIssue) {
-      messages.push(`[continuity] ${safeRelative(root, book)}：${checkpointIssue}。`)
+    const checkpoint = inspectTrackingCheckpoint(book, chapters.length > 0)
+    if (checkpoint.hard) {
+      messages.push(`[continuity] ${safeRelative(root, book)}：${checkpoint.hard}。`)
+    }
+    for (const warning of checkpoint.warnings) {
+      messages.push(`[continuity] ${safeRelative(root, book)}：${warning}。`)
     }
     if (chapters.length && fs.existsSync(context)) {
       try {
@@ -170,7 +277,7 @@ function continuityFindings(root) {
         const contextTime = fs.statSync(context).mtimeMs
         if (newest > contextTime + 1000) {
           const latest = chapters.reduce((left, right) => fs.statSync(left).mtimeMs > fs.statSync(right).mtimeMs ? left : right)
-          messages.push(`[continuity] ${safeRelative(root, book)}：正文已更新到「${path.basename(latest)}」但续写状态卡更早——为该章提交 tracking_commit.py 事务、check 通过后再续写，禁止分别手改 上下文.md/伏笔.md。`)
+          messages.push(`[continuity] ${safeRelative(root, book)}：正文已更新到「${path.basename(latest)}」但续写状态卡更早——为该章提交 tracking_commit.js 事务、check 通过后再续写，禁止分别手改 上下文.md/伏笔.md。`)
         }
       } catch {}
     }
@@ -180,7 +287,7 @@ function continuityFindings(root) {
       try {
         const contextSize = fs.statSync(context).size
         if (contextSize > 12288) {
-          messages.push(`[continuity] ${safeRelative(root, book)}：追踪/上下文.md 已 ${contextSize} 字节，超出续写状态卡预算 12288 字节——提交一份 mode=revision 事务让 tracking_commit.py 整份重建，不要手改也不要继续追加。`)
+          messages.push(`[continuity] ${safeRelative(root, book)}：追踪/上下文.md 已 ${contextSize} 字节，超出续写状态卡预算 12288 字节——提交一份 mode=revision 事务让 tracking_commit.js 整份重建，不要手改也不要继续追加。`)
         }
       } catch {}
     }
@@ -646,11 +753,11 @@ function extractPatchTargets(patchText) {
   return targets
 }
 
-// 未展开的 shell 变量：$VAR / ${VAR} / $(cmd)。与 codex UNEXPANDED_SHELL_VAR 同式。
+// 未展开的 shell 变量：$VAR / ${VAR} / $(cmd)。
 const UNEXPANDED_SHELL_VAR = /\$(\{[A-Za-z_][A-Za-z0-9_]*\}|[A-Za-z_][A-Za-z0-9_]*|\()/
 
 // 「去味:跳过」豁免标记：文件首 6 行内的 `<!-- 去味:跳过 -->`，冒号全角半角都认，注释内可有
-// 空格/Tab；裸写不在注释里的不算。codex py _DESLOP_SKIP_MARKER、bash guard、storyctl DESLOP_SKIP 同一语法。
+// 空格/Tab；裸写不在注释里的不算。与 storyctl.js DESLOP_SKIP 同一语法（由 test-story-hook-core.mjs 校验）。
 const DESLOP_SKIP_MARKER = /<!--[ \t]*去味[ \t]*(：|:)[ \t]*跳过[ \t]*-->/
 function hasDeslopSkipMarker(text) {
   return DESLOP_SKIP_MARKER.test(text.split(/\r?\n/).slice(0, 6).join("\n"))
@@ -661,8 +768,7 @@ function hasDeslopSkipMarker(text) {
 // （`## 核心事件：…` 这种把内容写在标题行上的细纲是写了东西的）。只量写没写东西，
 // 不查 v0.8 细纲字段——旧书的细纲格式各异，照样放行。读不了（权限/是目录）或不是合法 UTF-8
 // （GBK 等旧编码，各端解码计数口径不同）都按非空放行（宁可漏拦）。
-// codex py _outline_is_empty 与 guard-outline-before-prose.sh outline_is_empty 同口径，
-// 由 test-prose-net-parity.sh C/D 段锁 parity。
+// 五端共用本核，边界行为由 scripts/test-story-hook-core.mjs 覆盖。
 const OUTLINE_MIN_CHARS = 30
 function outlineIsEmpty(file) {
   let text
@@ -732,41 +838,71 @@ function proseBlockReason(root, absolute) {
   if (checkpointIssue) {
     return `⛔ 写正文被拦截：${safeRelative(root, book)} 的${checkpointIssue}。`
   }
-  if (exists) return null
-  // 欠账门（无状态）：写第 N 章（首建）前，上一章有未清毒句式且未标「去味:跳过」豁免时先清再写。
-  // 判据现算自上一章文件本身，不落任何状态文件；找不到上一章/读取失败一律放行（宁可漏拦不可误伤）。
-  // js↔py 文案由 check-hook-regex-sync.sh 锁同步，判定由 test-prose-net-parity.sh Part E 锁 parity。
-  const prevNum = Number(chapter) - 1
-  if (prevNum >= 1) {
-    let prevFile = null
-    try {
-      // readdir 顺序在 ext4/overlayfs 上是哈希序：不排序就可能挑中同章号的原稿备份
-      // （workflow-revision 的「备份原稿」产物），拿早已被改写掉的旧文本报欠账。
-      // 显式排除 _原稿_ 备份并排序，保证四端与各文件系统上取到同一个「上一章」。
-      const candidates = fs.readdirSync(path.dirname(absolute))
-        .filter((file) => {
-          const pm = file.match(/^第0*(\d+)章.*\.md$/)
-          return pm && Number(pm[1]) === prevNum && !file.includes("_原稿_")
-        })
-        .sort()
-      if (candidates.length) prevFile = path.join(path.dirname(absolute), candidates[0])
-    } catch {}
-    if (prevFile) {
-      let prevText = null
-      try { prevText = fs.readFileSync(prevFile, "utf8") } catch {}
-      if (prevText !== null && !hasDeslopSkipMarker(prevText)) {
-        const hits = toxicPhraseFindings(prevText, loadStyleWhitelist(prevFile)).filter((line) => line.startsWith("第"))
-        if (hits.length) {
-          const shown = hits.slice(0, 6)
-          const more = hits.length - shown.length
-          let reason = `⛔ 写正文被拦截：上一章（${path.basename(prevFile)}）有 ${hits.length} 处未清毒句式欠账，先清零再写第 ${chapter} 章；用户显式豁免时在上一章标题行下加 <!-- 去味:跳过 --> 后重试。\n${shown.join("\n")}`
-          if (more > 0) reason += `\n（另有 ${more} 处，${toxicRescanHint(prevFile)}）`
-          return reason
+  return null
+}
+
+// 写正文前软门禁提醒（非阻断）：只承载启发式/协作灵活性信号，永不拦截 Write/Edit/Bash。
+// 1. 追踪派生视图修订号不一致（作者可能手工编辑了 上下文.md）或跳章首建；
+// 2. 首建第 N 章时若上一章（非 _原稿_ 备份，且未标「去味:跳过」）检出疑似毒句式，提醒 Agent 重点复核。
+function prosePreWriteWarnings(root, absolute) {
+  const base = path.basename(absolute)
+  const parent = path.basename(path.dirname(absolute))
+  if (base === "正文.md") return []
+  if (parent !== "正文" || !/^第.*章.*\.md$/.test(base)) return []
+  const match = base.match(/^第0*(\d+)章/)
+  if (!match) return []
+  const chapter = match[1]
+  const book = path.dirname(path.dirname(absolute))
+  const state = path.join(book, "追踪", "_tracking-state.json")
+  if (fs.existsSync(path.join(root, "拆文库", path.basename(book))) && !fs.existsSync(state)) return []
+  const exists = fs.existsSync(absolute)
+  const warnings = []
+
+  const checkpoint = inspectTrackingCheckpoint(book, true, exists ? null : Number(chapter) - 1)
+  if (!checkpoint.hard) {
+    for (const item of checkpoint.warnings) {
+      warnings.push(`⚠ 写前复核提醒（${safeRelative(root, book)}）：${item}。`)
+    }
+  }
+
+  if (!exists) {
+    const prevNum = Number(chapter) - 1
+    if (prevNum >= 1) {
+      let prevFile = null
+      try {
+        // readdir 顺序在 ext4/overlayfs 上是哈希序：排除 _原稿_ 备份并排序，保证五端取到同一「上一章」。
+        const candidates = fs.readdirSync(path.dirname(absolute))
+          .filter((file) => {
+            const pm = file.match(/^第0*(\d+)章.*\.md$/)
+            return pm && Number(pm[1]) === prevNum && !file.includes("_原稿_")
+          })
+          .sort()
+        if (candidates.length) prevFile = path.join(path.dirname(absolute), candidates[0])
+      } catch {}
+      if (prevFile) {
+        let prevText = null
+        try { prevText = fs.readFileSync(prevFile, "utf8") } catch {}
+        if (prevText !== null && !hasDeslopSkipMarker(prevText)) {
+          const hits = toxicPhraseFindings(prevText, loadStyleWhitelist(prevFile)).filter((line) => line.startsWith("第"))
+          if (hits.length) {
+            const shown = hits.slice(0, 6)
+            const more = hits.length - shown.length
+            let note = `⚠ 写前复核提醒（非阻断）：上一章（${path.basename(prevFile)}）检出 ${hits.length} 处疑似 AI 毒句式，建议开写第 ${chapter} 章前重点复核（确认剧情需要可保留，或按单章检查收口）：\n${shown.join("\n")}`
+            if (more > 0) note += `\n（另有 ${more} 处，${toxicRescanHint(prevFile)}）`
+            warnings.push(note)
+          }
         }
       }
     }
   }
-  return null
+
+  return warnings
+}
+
+function formatPreWriteAdvisory(warnings) {
+  const unique = [...new Set((warnings || []).filter(Boolean))]
+  if (!unique.length) return ""
+  return `=== 写正文前软门禁提醒（非阻断，请重点复核）===\n${unique.join("\n\n")}\n=== 本次写入已放行；如属作者有意安排可继续，否则请顺手处理 ===`
 }
 
 // 收尾标点集与深扫 oracle check-degeneration.js 的 findTruncation 对齐（[。！？!?…”"』」）)】]）：
@@ -785,12 +921,14 @@ const SOFT_PATTERNS = [
 const HARD_PATTERNS = [
   [/[（(](此处|以下|这里|下文|后续)?[^）)]{0,10}(省略|略去|略过)[^）)]{0,10}[）)]/, "占位符（括号省略）"],
   [/(TODO|占位符|placeholder|待补充|此处待填|此处待补)/, "占位符"],
-  [/(细纲|情节点|卷纲|功能标签|目标情绪|字数目标|章首钩子|章尾钩子|任务描述)/, "工程词泄漏"],
+  [/(细纲|(?<!剧)情节点|卷纲|功能标签|目标情绪|字数目标|章首钩子|章尾钩子|任务描述)/, "工程词泄漏"],
   [/�/, "乱码（替换字符）"],
 ]
 
+const TOXIC_END_SIGNOFF = /^[-—~～＜<【\[（(《\s]*(?:全文完|正文完|全书完|本卷完|完结|完|END|End|end|THE\s+END|The\s+End|the\s+end)[-—~～＞>】\]）)》.。！!\s]*$/
+
 function skippableLine(line) {
-  return !line || line.startsWith("#") || line === "---" || /^[-—=*·•\s]+$/.test(line)
+  return !line || line.startsWith("#") || line === "---" || /^[-—=*·•\s]+$/.test(line) || TOXIC_END_SIGNOFF.test(line)
 }
 
 // ── 毒句式（确定性 AI 句式指纹，写后正文网热路径）─────────────────────────────
@@ -799,9 +937,8 @@ function skippableLine(line) {
 // 线性扫描、量词有界，无回溯灾难。台词/弹幕/系统播报不算：逐行把成对引号段等长
 // 问号占位（占位天然截断各规则的字符类，规则不会跨引号拼出假命中；见
 // maskQuotedSpans 为何用问号而不是句号），占位后仍残留引号字符（跨行对话/未闭合）
-// 的行整行跳过。js↔py 同构实现（codex
-// story_codex_hook.py）由 scripts/check-hook-regex-sync.sh（常量表逐字锁）与
-// scripts/test-prose-net-parity.sh（fixture 逐字 diff）锁 parity，文案以本核为准。
+// 的行整行跳过。五端共用本核，与 check-ai-patterns.js 的 6 条毒句式全量 parity 由
+// scripts/test-story-hook-core.mjs 守卫，文案以本核为准。
 // 单引号须成对；词内撇号（don't、O’Connor）不作为开闭引号。
 const TOXIC_QUOTE_SPANS = [/「[^」]*」/g, /『[^』]*』/g, /【[^】]*】/g, /“[^”]*”/g, /(?<![A-Za-z0-9_])‘(?:[^’]|(?<=[A-Za-z0-9_])’(?=[A-Za-z0-9_]))*(?!(?<=[A-Za-z0-9_])’[A-Za-z0-9_])’/g, /"[^"]*"/g, /(?<![A-Za-z0-9_])'(?:[^']|(?<=[A-Za-z0-9_])'(?=[A-Za-z0-9_]))*(?!(?<=[A-Za-z0-9_])'[A-Za-z0-9_])'/g]
 const TOXIC_QUOTE_CHARS = new Set(Array.from("「」『』【】“”‘’\"'"))
@@ -812,14 +949,19 @@ const TOXIC_CLAUSE_BOUNDARY = new Set(Array.from("，,。.！!？?；;：:、…
 const TOXIC_TAG_PARTICLES = new Set(["吗", "吧", "嘛"])
 const TOXIC_AFFIRM_PARTICLES = new Set(["的", "啊", "呀", "呢"])
 const TOXIC_TRAILER_WINDOW = 600
-// 不收 em-dash（check-ai-patterns.js 里它也是 blocking）是有意的：破折号是标点，长篇 chapter check
+const TOXIC_SCALE_UNIT_CHARS = 4500
+const TOXIC_NOT_IS_MIN_HITS = 3
+const TOXIC_VOICE_MIN_HITS = 2
+const TOXIC_PARADE_MIN_HITS = 2
+const TOXIC_TRAILER_MIN_HITS = 2
+// 不收 em-dash（check-ai-patterns.js 里旁白破折号为 blocking）是有意的：破折号是标点，长篇 chapter check
 // --fix-punctuation / normalize-punctuation.js 会确定性整理，短篇收尾同样先跑标点整理；这张网只推回
-// 需要模型动笔改写的句式。每次写正文都把破折号当硬信号推回只会制造噪声，漏网的仍被 chapter check 拦在提交前。
+// 需要模型动笔改写的句式，且单章计数门槛与 check-ai-patterns.js 的 blocking 线逐项一致。
 const TOXIC_SENTENCE_PATTERNS = [
-  [/声音(?:并)?不[大高响亮][^。！？!?\n]{0,16}[却但偏]/g, "voice-contrast", "删「不X…却Y」反差腔，直接写具体效果或动作。"],
+  [/声音(?:并)?不[大高响亮][^。！？!?\n]{0,16}[却但偏]/g, "voice-contrast", "删「不X…却Y」反差腔，直接写台词分量、利害后果或在场反应。"],
   [/(?:没有[^。！？!?\n，,]{1,12}[，,]){2}/g, "negation-parade", "「没有…，没有…」排比删到只剩一个或全删，改写正面在场的细节。"],
-  [/是[^。！？!?\n，,]{1,12}[，,]\s*(?:而)?不是[^。！？!?\n]{1,20}/g, "reverse-not-is", "删否定铺垫，直接写肯定项，或改成动作细节。"],
-  [/不是[^。！？!?\n]{1,16}[，,]\s*(?:而)?是/g, "not-is-comparison", "删否定铺垫，直接写肯定项，或改成动作细节。"],
+  [/是[^。！？!?\n，,]{1,12}[，,]\s*(?:而)?不是[^。！？!?\n]{1,20}/g, "reverse-not-is", "删否定铺垫，直接写后项（直白情绪、判断、对话或具体细节皆可）。"],
+  [/不是[^。！？!?\n]{1,16}[，,]\s*(?:而)?是/g, "not-is-comparison", "删否定铺垫，直接写后项（直白情绪、判断、对话或具体细节皆可）。"],
 ]
 // 「正式拉开序幕/帷幕」是场内事件的报幕式陈述，不是叙述者预告，lookbehind 排除（同 check-ai-patterns.js）。
 const TOXIC_TRAILER_PATTERN = /没人知道|谁也不知道|谁也没想到|殊不知|(?:这)?才刚刚开(?:始|头)|正(?:朝着|向着)[^。！？!?\n]{0,24}(?:压|涌|袭|逼)(?:了?过去|了?过来|来)|(?<!正式)拉开(?:序幕|帷幕)|即将(?:开始|来临|降临)/
@@ -867,18 +1009,28 @@ function toxicReverseNotIsExcluded(line, matched, start) {
   return false
 }
 
-// 每行只报第一条命中的句式规则（复扫到净哲学：改完一处再扫下一处）。
-function matchToxicSentence(line) {
-  for (const [regex, label, fix] of TOXIC_SENTENCE_PATTERNS) {
+// 提取单行内所有不重叠的句式命中（按码点起点与规则顺序去重），供全章密度分级计数。
+function matchToxicSentences(line) {
+  const candidates = []
+  for (let order = 0; order < TOXIC_SENTENCE_PATTERNS.length; order += 1) {
+    const [regex, label, fix] = TOXIC_SENTENCE_PATTERNS[order]
     regex.lastIndex = 0
     let match
     while ((match = regex.exec(line)) !== null) {
       if (label === "not-is-comparison" && toxicNotIsExcluded(line, match[0], match.index)) continue
       if (label === "reverse-not-is" && toxicReverseNotIsExcluded(line, match[0], match.index)) continue
-      return [label, fix, match[0]]
+      const cpStart = Array.from(line.slice(0, match.index)).length
+      const cpEnd = cpStart + Array.from(match[0]).length
+      candidates.push([cpStart, cpEnd, order, label, fix, match[0]])
     }
   }
-  return null
+  candidates.sort((a, b) => a[0] - b[0] || a[2] - b[2])
+  const accepted = []
+  for (const item of candidates) {
+    if (accepted.some((prev) => item[0] < prev[1] && item[1] > prev[0])) continue
+    accepted.push(item)
+  }
+  return accepted.map(([, , , label, fix, text]) => [label, fix, text])
 }
 
 function codePointSlice(value, start, end) {
@@ -921,18 +1073,18 @@ function maskStyleText(text, whitelist) {
 
 // 毒句式末行的完整复扫指引：长篇分章正文（{书}/正文/第N章*.md）指 storyctl chapter check——长篇写作
 // 流程只认这一个检查入口；其余（短篇 正文.md、调用方没给路径）指 check-ai-patterns.js。
-// codex py toxic_rescan_hint 同文案，由 test-prose-net-parity.sh C 段锁 parity。
+// 五端共用本核，路径分流由 scripts/test-story-hook-core.mjs 覆盖。
 function toxicRescanHint(absolute) {
   const match = absolute ? path.basename(absolute).match(/^第0*(\d+)章.*\.md$/) : null
   if (match && path.basename(path.dirname(absolute)) === "正文") {
-    return `完整检查：{PYTHON} <story-long-write>/scripts/storyctl.py chapter check --project <书目录> --chapter ${match[1]}`
+    return `完整检查：node <story-long-write>/scripts/storyctl.js chapter check --project <书目录> --chapter ${match[1]}`
   }
   return "完整扫描：node <skill>/scripts/check-ai-patterns.js --check <正文文件>"
 }
 
 // HTML 注释（如 `<!-- 去味:跳过 -->`、作者备注）是元信息不是正文，与 check-ai-patterns.js scanDocument
 // 同规则：注释段（含 `<!--`、`-->`）换成等长（按码点）空格，可跨行；到文末都没闭合的 `<!--` 不算注释，
-// 只抹掉这四个字符、后面照常当正文（漏写 `-->` 不能把后面整章藏起来）。codex py _mask_html_comment_lines 同构。
+// 只抹掉这四个字符、后面照常当正文（漏写 `-->` 不能把后面整章藏起来）。
 function maskHtmlCommentLines(lines) {
   const unclosed = new Set()
   for (;;) {
@@ -973,18 +1125,32 @@ function maskHtmlCommentLines(lines) {
 function toxicPhraseFindings(text, whitelist = [], rescan = toxicRescanHint("")) {
   const findings = []
   const content = []
+  let docChars = 0
   maskHtmlCommentLines(text.split("\n")).forEach((raw, index) => {
     const line = raw.trim()
     if (skippableLine(line)) return
+    docChars += Array.from(line.replace(/[ \t\r\n\f\v\u3000]+/g, "")).length
     const masked = maskQuotedSpans(maskStyleText(line, whitelist))
     for (const ch of masked) {
       if (TOXIC_QUOTE_CHARS.has(ch)) return
     }
     content.push([index + 1, masked])
   })
+  const scale = Math.max(1, Math.floor((docChars + Math.floor(TOXIC_SCALE_UNIT_CHARS / 2)) / TOXIC_SCALE_UNIT_CHARS))
+  const sentenceHits = []
+  const counts = new Map()
   for (const [lineNo, masked] of content) {
-    const hit = matchToxicSentence(masked)
-    if (hit) findings.push(`第${lineNo}行 毒句式[${hit[0]}]：『${codePointSlice(hit[2], 0, 20)}』——${hit[1]}`)
+    for (const [label, fix, matched] of matchToxicSentences(masked)) {
+      sentenceHits.push([lineNo, label, fix, matched])
+      counts.set(label, (counts.get(label) || 0) + 1)
+    }
+  }
+  const notIsCombined = (counts.get("not-is-comparison") || 0) + (counts.get("reverse-not-is") || 0)
+  for (const [lineNo, label, fix, matched] of sentenceHits) {
+    if ((label === "not-is-comparison" || label === "reverse-not-is") && notIsCombined < TOXIC_NOT_IS_MIN_HITS * scale) continue
+    if (label === "voice-contrast" && (counts.get("voice-contrast") || 0) < TOXIC_VOICE_MIN_HITS * scale) continue
+    if (label === "negation-parade" && (counts.get("negation-parade") || 0) < TOXIC_PARADE_MIN_HITS * scale) continue
+    findings.push(`第${lineNo}行 毒句式[${label}]：『${codePointSlice(matched, 0, 20)}』——${fix}`)
   }
   // trailer-ending 只扫文末 600 字窗口（引号占位后按行累计，边界行整行计入）。
   let acc = 0
@@ -993,18 +1159,37 @@ function toxicPhraseFindings(text, whitelist = [], rescan = toxicRescanHint(""))
     cut -= 1
     acc += Array.from(content[cut][1]).length
   }
+  const trailerRe = new RegExp(TOXIC_TRAILER_PATTERN.source, "g")
+  const summaryRe = new RegExp(TOXIC_TRAILER_SUMMARY_PATTERN.source, "g")
+  const windowRows = []
+  let totalTrailers = 0
   for (let i = cut; i < content.length; i++) {
     const [lineNo, masked] = content[i]
-    const match = masked.match(TOXIC_TRAILER_PATTERN)
-    if (match) findings.push(`第${lineNo}行 毒句式[trailer-ending]：『${codePointSlice(match[0], 0, 20)}』——删章尾预告腔，用正在发生的动作或画面收章。`)
-    const summary = masked.match(TOXIC_TRAILER_SUMMARY_PATTERN)
-    if (summary) findings.push(`第${lineNo}行 毒句式[trailer-summary]：『${codePointSlice(summary[0], 0, 20)}』——删章尾状态总结句，细纲的结尾设定要落成最后的具体动作、画面或台词。`)
+    const trailers = []
+    const summaries = []
+    let match
+    trailerRe.lastIndex = 0
+    while ((match = trailerRe.exec(masked)) !== null) trailers.push(match[0])
+    summaryRe.lastIndex = 0
+    while ((match = summaryRe.exec(masked)) !== null) summaries.push(match[0])
+    totalTrailers += trailers.length
+    windowRows.push([lineNo, trailers, summaries])
+  }
+  for (const [lineNo, trailers, summaries] of windowRows) {
+    if (totalTrailers >= TOXIC_TRAILER_MIN_HITS) {
+      for (const hit of trailers) {
+        findings.push(`第${lineNo}行 毒句式[trailer-ending]：『${codePointSlice(hit, 0, 20)}』——删章尾预告腔，用正在发生的动作或画面收章。`)
+      }
+    }
+    for (const hit of summaries) {
+      findings.push(`第${lineNo}行 毒句式[trailer-summary]：『${codePointSlice(hit, 0, 20)}』——删章尾状态总结句，细纲的结尾设定要落成最后的具体动作、画面或台词。`)
+    }
   }
   if (findings.length) findings.push(`毒句式是确定性 AI 指纹：本章须清零后再继续。${rescan}`)
   return findings
 }
 
-function proseNetFindings(text, whitelist = [], rescan = toxicRescanHint("")) {
+function proseDegenerationFindings(text) {
   const findings = []
   const content = []
   text.split("\n").forEach((raw, index) => {
@@ -1042,13 +1227,28 @@ function proseNetFindings(text, whitelist = [], rescan = toxicRescanHint("")) {
     const [lineNo, last] = content[content.length - 1]
     if (!TERMINAL.has(Array.from(last).pop())) findings.push(`第${lineNo}行 疑似截断：结尾「…${codePointSlice(last, -12)}」未以标点收束`)
   }
-  // 「去味:跳过」豁免与欠账门同判据（文件首 6 行）：标记在场时跳过毒句式推回，
-  // 其余网（元信息/占位/复读/截断）照常——否则按拦截提示加标记的那次 Edit 会把
-  // 已豁免的毒句式再次当硬信号推回。
+  return findings
+}
+
+function proseNetFindings(text, whitelist = [], rescan = toxicRescanHint("")) {
+  const findings = proseDegenerationFindings(text)
+  // 「去味:跳过」豁免（文件首 6 行）：标记在场时跳过毒句式提示，
+  // 其余网（元信息/占位/复读/截断）照常。
   if (!hasDeslopSkipMarker(text)) {
     findings.push(...toxicPhraseFindings(text, whitelist, rescan))
   }
   return findings
+}
+
+function hasHardProseFindings(root, absolute) {
+  if (!fs.existsSync(absolute) || !isProsePath(absolute)) return false
+  try {
+    if (fs.statSync(absolute).size < 200) return true
+    const text = fs.readFileSync(absolute, "utf8")
+    return proseDegenerationFindings(text).length > 0
+  } catch {
+    return false
+  }
 }
 
 function isProsePath(absolute) {
@@ -1088,7 +1288,11 @@ function proseAfterWrite(root, absolute) {
     const bytes = fs.statSync(absolute).size
     if (bytes < 200) findings.push(`【落盘】正文仅 ${bytes} 字节，疑似未写完/落盘失败（quota/超时中断？），请核对并补写。`)
     const text = fs.readFileSync(absolute, "utf8")
-    findings.push(...proseNetFindings(text, loadStyleWhitelist(absolute), toxicRescanHint(absolute)))
+    const net = proseNetFindings(text, loadStyleWhitelist(absolute), toxicRescanHint(absolute))
+    if (net.length) {
+      findings.push("【退化/工程词/毒句式】（硬信号：截断/拒绝语/工程词→重写该段；毒句式→就地改写；命中即处理，别留给下一章）")
+      findings.push(...net)
+    }
   } catch {
     return ""
   }
@@ -1304,7 +1508,119 @@ function stagedMarkdownWarnings(root) {
   return warnings.length ? `=== Story Commit Warnings（advisory only）===\n${warnings.join("\n")}\n=== End Warnings ===` : ""
 }
 
+// 与 tracking_commit.js FORESHADOW_STATUSES 保持同步（由 test-story-hook-core.mjs 校验）。
+const FORESHADOW_NORMAL_STATUSES = new Set(["已埋", "已回收", "放弃"])
+const FORESHADOW_WARN_STATUSES = new Set(["已过期"])
+
+function countMarkdownFiles(dir) {
+  let count = 0
+  function walk(base) {
+    let entries = []
+    try { entries = fs.readdirSync(base, { withFileTypes: true }) } catch { return }
+    for (const entry of entries) {
+      const full = path.join(base, entry.name)
+      if (entry.isDirectory()) walk(full)
+      else if (entry.isFile() && entry.name.endsWith(".md")) count += 1
+    }
+  }
+  walk(dir)
+  return count
+}
+
+function analysisIncomplete(progressFile) {
+  let text = ""
+  try { text = fs.readFileSync(progressFile, "utf8") } catch { return true }
+  const match = text.match(/最终状态[：:]\s*([A-Za-z_]+)/)
+  if (!match) return true
+  return match[1] !== "completed" && match[1] !== "completed_with_errors"
+}
+
+function discoverIncompleteAnalyses(root) {
+  const libDir = path.join(root, "拆文库")
+  if (!existingDir(libDir)) return []
+  const results = []
+  function walk(base) {
+    let entries = []
+    try { entries = fs.readdirSync(base, { withFileTypes: true }) } catch { return }
+    entries.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))
+    for (const entry of entries) {
+      const full = path.join(base, entry.name)
+      if (entry.isDirectory()) walk(full)
+      else if (entry.isFile() && entry.name === "_progress.md" && analysisIncomplete(full)) {
+        results.push(full)
+      }
+    }
+  }
+  walk(libDir)
+  return results
+}
+
+function hasAbnormalForeshadowing(foreshadowFile) {
+  let text = ""
+  try { text = fs.readFileSync(foreshadowFile, "utf8") } catch { return false }
+  for (const rawLine of text.split(/\r?\n/)) {
+    if (!rawLine.startsWith("|")) continue
+    if (/^\|[-:\s|]+$/.test(rawLine)) continue
+    const cols = rawLine.split("|")
+    // awk -F'|' $6 对应 split('|')[5]（第 0 段为行首 '|' 之前的空串）
+    const status = String(cols[5] || "").replace(/^[\s\u3000]+|[\s\u3000]+$/g, "")
+    if (!status || status === "状态" || /^状态\{/.test(status)) continue
+    if (FORESHADOW_WARN_STATUSES.has(status) || !FORESHADOW_NORMAL_STATUSES.has(status)) return true
+  }
+  return false
+}
+
+function detectStoryGaps(root) {
+  const books = discoverAllBooks(root)
+  if (!books.length) return ""
+  const blocks = []
+  for (const book of books) {
+    const bookName = path.basename(book)
+    const warnings = []
+    const bodyDir = path.join(book, "正文")
+    const bodyFile = path.join(book, "正文.md")
+    const settingDir = path.join(book, "设定")
+    const trackingDir = path.join(book, "追踪")
+    const outlineDir = path.join(book, "大纲")
+
+    let chapterCount = 0
+    if (existingDir(bodyDir)) chapterCount = countMarkdownFiles(bodyDir)
+    else if (fs.existsSync(bodyFile)) chapterCount = 1
+    const settingCount = existingDir(settingDir) ? countMarkdownFiles(settingDir) : 0
+    if (chapterCount > 10 && settingCount < 3) {
+      warnings.push(`[WARN] ${bookName}：正文 ${chapterCount} 章，但设定文件只有 ${settingCount} 个，建议补充设定。`)
+    }
+
+    const foreshadowFile = path.join(trackingDir, "伏笔.md")
+    if (fs.existsSync(foreshadowFile) && hasAbnormalForeshadowing(foreshadowFile)) {
+      warnings.push(`[WARN] ${bookName}：伏笔.md 中检测到过期或异常的伏笔条目，建议跑 /story-review lean 或做一次伏笔审计。`)
+    }
+
+    if (existingDir(bodyDir) || fs.existsSync(bodyFile)) {
+      if (existingDir(trackingDir) && !existingDir(outlineDir)) {
+        warnings.push(`[WARN] ${bookName}：已有 正文/ 但缺少 大纲/，建议先搭大纲。`)
+      } else if (!existingDir(trackingDir) && !fs.existsSync(path.join(book, "小节大纲.md"))) {
+        warnings.push(`[WARN] ${bookName}：已有正文但缺少 小节大纲.md，建议先搭大纲。`)
+      }
+    }
+
+    if (warnings.length) {
+      blocks.push(`检查：${bookName}\n${warnings.join("\n")}`)
+    }
+  }
+
+  for (const progressFile of discoverIncompleteAnalyses(root)) {
+    blocks.push(`[WARN] 拆文未完成：${safeRelative(root, progressFile)}，运行 /story-long-analyze 继续。`)
+  }
+  blocks.push(...continuityFindings(root))
+  if (!blocks.length) return ""
+  return `=== 写作缺口检测 ===\n${blocks.join("\n")}\n`
+}
+
 module.exports = {
+  CURRENT_AGENTS_VERSION,
+  readSentinel,
+  agentsVersionNotice,
   existingDir,
   safeRelative,
   resolveTarget,
@@ -1312,22 +1628,34 @@ module.exports = {
   findFirst,
   discoverActiveBook,
   discoverAllBooks,
+  inspectTrackingCheckpoint,
   trackingCheckpointIssue,
   continuityFindings,
   extractProseTargets,
   extractPatchTargets,
   proseBlockReason,
+  prosePreWriteWarnings,
+  formatPreWriteAdvisory,
   isProsePath,
   duplicateTitleFindings,
   proseAfterWrite,
+  hasHardProseFindings,
   shellWords,
   isGitCommitCommand,
+  isCharacterSheetPath,
   stagedMarkdownWarnings,
+  FORESHADOW_NORMAL_STATUSES,
+  FORESHADOW_WARN_STATUSES,
+  DESLOP_SKIP_MARKER,
+  analysisIncomplete,
+  discoverIncompleteAnalyses,
+  detectStoryGaps,
   TERMINAL,
   QUOTE_OPENERS,
   SOFT_PATTERNS,
   HARD_PATTERNS,
   skippableLine,
+  proseDegenerationFindings,
   proseNetFindings,
   maskQuotedSpans,
   toxicPhraseFindings,

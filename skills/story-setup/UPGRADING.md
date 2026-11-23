@@ -2,12 +2,12 @@
 
 ## 当前版本
 
-助手版本 42（v0.10.3）。已有项目更新技能包后，在项目根重跑 `/story-setup`（Codex 用 `$story-setup`，Antigravity 用 `/skills` 或直接点名），再新开会话。
+助手版本 45（v0.11.0）。已有项目更新技能包后，在项目根重跑 `/story-setup`（Codex 用 `$story-setup`，Antigravity 用 `/skills` 或直接点名），再新开会话。
 
-- `setup_skill_version: 1.3.10`
-- `agents_version: 42`
+- `setup_skill_version: 1.3.13`
+- `agents_version: 45`
 
-`.story-deployed` 字段不全，或 `agents_version` 不是整数、低于 42，都算待更新，重跑 story-setup 即可。项目里的 `agents_version` 大于 42，说明本机技能包比项目旧：先更新 oh-story-claudecode，不要用旧包覆盖。各版本改了什么见仓库根目录 `CHANGELOG.md`。
+`.story-deployed` 字段不全，或 `agents_version` 不是整数、低于 45，都算待更新，重跑 story-setup 即可。项目里的 `agents_version` 大于 45，说明本机技能包比项目旧：先更新 oh-story-claudecode，不要用旧包覆盖。各版本改了什么见仓库根目录 `CHANGELOG.md`。
 
 ## 升级步骤
 
@@ -17,7 +17,23 @@
 4. 正在写的长篇：确认每本书有 `追踪/_tracking-state.json`。没有就按下方「追踪模型迁移」重建，否则写下一章会被拦。
 5. 拆文成果或细纲不满足当前格式时，按检查提示定点补齐，不因单项缺口整本重拆。
 
-## 本次更新必须重跑 story-setup（v0.10.3，助手版本 42）
+## v0.11.0 的改动（助手版本 45，更新后必须重跑 story-setup）
+
+- **零依赖 Node.js 18+ 运行时与五端共享 Hook**：全部核心技能运行时脚本与五个支持 Hook 的宿主（Claude Code、Codex、OpenCode、Antigravity、ZCode）全部收口到 Node.js 18+；五端 Hook 共用 `story_hook_core.js`（Claude Code `.claude/hooks/` 收敛为 `run-story-hook.sh` + `story_hook_cli.js` + `story_hook_core.js`，重跑自动清理旧版 `.sh` 并刷新 `.claude/settings.local.json`；Codex 改用 `story_codex_hook.js`；OpenCode `pre-commit` 复用共享核）。Python 3 改为可选（仅长篇拆文可选关系图 PNG 渲染 `render_relation_chart.py` 需要）；缺 Node.js 18+ 时会在会话起点发出提示。
+- **门禁分层重构（确定性硬底线 + 软门禁）**：写正文前仅在缺细纲/空壳细纲、缺小节大纲、`_tracking-state.json` 缺失或损坏等硬故障时拦截，上一章未提交、上章句式提醒等改为写前软提示；去 AI 味句式规则降为 `review_required`（可改写或附理由 `--ack` 放行），仅退化/截断/机械标点硬阻断；追踪状态卡（12 KiB）与逐章记录（3072B）改为软提醒、统一 64 KiB 硬上限，手改追踪文件默认报 `drift_warnings` 而不阻断（`--strict` 才拒），并支持 `--allow-gap` 跳章提交；细纲、短篇构思与交付校验改为 `hard_failures`/`soft_warnings` 双轨（加 `--strict` 才把软警告升为失败）。
+- **清理与稳定性修复**：退役断链的三层灵感库（`灵感库/`）；五端 Hook 新增 `agents_version` 过期提醒并跳过 `拆文库/` 与 `对标/` 书目误识别；本地 Dashboard 修复隐藏目录与工作区边界校验。书稿、设定、追踪不用迁移。
+
+## v0.10.5 的改动（助手版本 44）
+
+- 写手、排纲、拆文、审稿助手与各端写后钩子按真人网文校准了万字短篇句式阻断门槛、退化与截断检查、弯引号默认、审稿细则和 0.10 细纲字段；重跑 story-setup 后新开会话才生效。
+- 书稿、设定、追踪不用迁移。
+
+## v0.10.4 的改动（助手版本 43）
+
+- 写手、排纲、审稿助手与参考资料按真人网文校准了情绪直写、利害算账、标点整理和去味阻断门槛，各端写后钩子同步按单章次数分级，重部署时还会清掉受管目录里已退役的旧文件；重跑 story-setup 后新开会话才生效。
+- 书稿、设定、追踪不用迁移。
+
+## v0.10.3 的改动（助手版本 42）
 
 - 7 个专业助手与它们读的参考资料去掉了重复段落和培训腔，保留全部输出模板、速查表与正反例；重跑 story-setup 后新开会话才生效。
 - 书稿、设定、追踪不用迁移。
@@ -35,7 +51,7 @@
 ## v0.10.0 的改动（助手版本 39）
 
 - 长篇写作的写手、排纲助手、项目规则都改了，重跑 story-setup 后新开会话才生效。
-- 书稿、设定、追踪不用迁移。老书的卷纲、细纲照样能读能写；想换成新写法（标题末尾注释代替「作用域」行、细纲用「属于哪段剧情」「这章怎么走」「可以放开写的地方」等白话字段、每章松紧用「爆发／推进／修炼／感情或关系戏／日常／过渡」，排纲笔记挪到书目录下的隐藏目录 `.story/排纲笔记/`），在书目录跑一次可选的转换：`.agents/skills/story-long-write/scripts/convert_outline_format.py {书目录}`（路径按宿主不同，先加 `--dry-run` 看会改哪些文件）。转换只换写法不改内容；刻度台阶、打脸债、压力线轮转三张表原样留着，由你决定删不删。
+- 书稿、设定、追踪不用迁移。老书的卷纲、细纲照样能读能写，不必转换（如需当年一次性格式转换脚本 `convert_outline_format.py`，可从仓库 `v0.10.5` tag 取用）。
 - 作者记忆只用你确认过的条目。之前记下但没确认的写作习惯不再生效，想保留的再说一次。
 - 正文里引号内的省略号不再被替换；长篇、短篇一起生效。
 
@@ -64,7 +80,7 @@
 
 重跑一次 story-setup 就会装上当前版本，中间版本不用逐个补。下面是写书时会碰到的变化：
 
-- 长篇写后检查需要 Node.js 18+：缺 Node 时这一章不能提交，装好后重跑检查。长篇拆文需要 Python 3。
+- 长篇写后检查需要 Node.js 18+：缺 Node 时这一章不能提交，装好后重跑检查。长篇拆文仅可选的人物关系图 PNG 渲染（`render_relation_chart.py`）需要 Python 3。
 - 改已经提交过的章，写作流程会先生成这一章的修订草稿再提交，不直接改追踪文件。
 - 细纲可以加一行「字数范围：2000-2600」，填入你给的范围；没写就按默认上下浮动。老细纲、老卷纲照常可用，排纲时才按新格式补。
 - 写正文前细纲不能是空壳（去掉 `#` 号和空白不到 30 字会被拦）；标了 `<!-- 去味:跳过 -->` 的章不会因为这行标记被判有问题。
@@ -81,7 +97,7 @@ OpenCode 2.0 起发布在 npm 包 `@opencode/cli`（`opencode-ai` 停在 1.x）�
 
 ## 插件打包身份迁移（v0.7.9 同版本修复）
 
-Claude Code / ZCode 市场改为单一 `oh-story` 插件，仍包含全部 13 个 Skills。该迁移始于 v0.7.9 的同版本修复，仍使用旧插件身份的用户需手动迁移；`npx skills` 安装无需迁移。卸载前备份要保留的插件数据，以下操作仅针对旧插件记录，保留写作项目及 story-setup 部署文件。
+Claude Code / ZCode 市场改为单一 `oh-story` 插件，当时包含全部 13 个 Skills（v0.9.2 起为 14 个）。该迁移始于 v0.7.9 的同版本修复，仍使用旧插件身份的用户需手动迁移；`npx skills` 安装无需迁移。卸载前备份要保留的插件数据，以下操作仅针对旧插件记录，保留写作项目及 story-setup 部署文件。
 
 ### Claude Code
 
@@ -153,13 +169,13 @@ OpenClaw、Reasonix 和通用模式把 skill 放在项目 `skills/` 里，重跑
 |------|------|
 | `追踪/_tracking-state.json` 存在且 `check` 通过 | 正常，无需处理 |
 | 缺 `_tracking-state.json` 但已有正文 | 日更停止；Claude Code、Codex、OpenCode、ZCode、Antigravity 上写正文会被 hook 直接拦下，其他工具由写作流程自己停下 |
-| 存在但自动生成的追踪文件被手改 | `check` 报 `derived view differs from _tracking-state.json` |
+| 存在但自动生成的追踪文件被手改 | 默认 `check` 返回 exit 0 并输出 `drift_warnings`，提示把改动吸收回 JSON 或重建（仅 `--strict` 报错拒绝） |
 
-迁移**不需要重跑全书拆解**：正文、`设定/`、`大纲/`、`拆文库/` 都不受影响，只重建 `追踪/`。执行 `/story-import` 的「旧追踪项目迁移」——数出最后完整章号 `N`，从旧追踪文件与最近几章正文重建当前状态，构造 `last_chapter=N` 的初始化事务跑 `tracking_commit.py init`。旧追踪结构会被按原样整体移入 `追踪/_旧追踪存档/`，不删除、不参与解析。
+迁移**不需要重跑全书拆解**：正文、`设定/`、`大纲/`、`拆文库/` 都不受影响，只重建 `追踪/`。执行 `/story-import` 的「旧追踪项目迁移」：数出最后完整章号 `N`，从旧追踪文件与最近几章正文整理出当前状态，构造 `last_chapter=N` 的初始化事务跑 `tracking_commit.js init`。旧追踪文件会原样移入 `追踪/_旧追踪存档/` 留底，不删除、也不再读取。
 
-退役结构：`_tracking-meta.json`、`时间线/事件库.json` 及更早追踪文件不再被解析，`commit` 与 `check` 遇到会直接拒绝。
+退役结构：`_tracking-meta.json`、`时间线/事件库.json` 及更早的追踪文件不再使用，`commit` 与 `check` 遇到会直接拒绝。
 
-之后写作时，追踪只通过写作流程提交；生成文件被手改后，用该章的修订提交整份重建。
+之后写作时，追踪仍建议通过写作流程提交；若曾手改派生文件，按 `check` 的 `drift_warnings` 提示吸收改动回 JSON，或用该章修订提交整份重建（需严格阻断漂移时加 `--strict`）。
 
 ## 作者记忆两级存储迁移（v0.7.11 之前的项目）
 
@@ -174,7 +190,7 @@ OpenClaw、Reasonix 和通用模式把 skill 放在项目 `skills/` 里，重跑
 3. 对每本书运行一次即可整批搬家，幂等、中途失败直接重跑：
 
    ```text
-   {PYTHON} {所用写作 skill 根}/scripts/author_memory_commit.py migrate --workspace {工作区} --book-root {工作区}/长篇/{书名}
+   node {所用写作 skill 根}/scripts/author_memory_commit.js migrate --workspace {工作区} --book-root {工作区}/长篇/{书名}
    ```
 
    断言、原话证据、确认次数、重要度原样保留；与全局条目的冲突候选在迁移后退回待确认。也可以对 agent 说「整理作者记忆」，迁移会列为默认提案项。
@@ -182,7 +198,7 @@ OpenClaw、Reasonix 和通用模式把 skill 放在项目 `skills/` 里，重跑
 **单书布局**（`正文/`、`追踪/` 直接在工作区根）：书级数据存储在 `{工作区}/.story/作者记忆/书级/`，迁移时 `--book-root` 就传工作区本身：
 
    ```text
-   {PYTHON} {所用写作 skill 根}/scripts/author_memory_commit.py migrate --workspace {工作区} --book-root {工作区}
+   node {所用写作 skill 根}/scripts/author_memory_commit.js migrate --workspace {工作区} --book-root {工作区}
    ```
 
 书名默认取存量本书条目里的书名；存量里有多本书的条目时用 `--book {书名}` 指定。用过 main 上预发布版本、查询时报 `project-level state must not carry state.book` 的工作区，带 `--book-root {工作区}` 运行任一命令即自动修复，不丢条目。
@@ -198,7 +214,7 @@ OpenClaw、Reasonix 和通用模式把 skill 放在项目 `skills/` 里，重跑
 
 旧版 `story-import` 可能把作者自己的导入书误建成 `对标/{当前书名}/`，甚至把本书设定登记成“主对标”。升级不会自动删除用户文件，按以下边界人工核对：
 
-1. 保留 `拆文库/{导入书名}/`；它是本书导入分析和重建工程的数据源，不是错误目录。
+1. 保留 `拆文库/{导入书名}/`：它是导入时整理本书结构用的底稿，留着即可。
 2. 以项目根 `设定/` 为本书正式设定。若 `对标/{当前书名}/` 的内容确认只是从本书 `设定/` 或 `拆文库/{导入书名}/` 复制而来，且没有人工补充，再删除这个误建目录。
 3. 清理 `设定/题材定位.md` 中把当前书登记为主/副对标的字段；真实外部对标登记不动。
 4. 若某个 `对标/{外部书名}/` 目录名看似外部作品，但内容实际来自当前书，删除这份错误视图，再从真正的 `拆文库/{对标书名}/` 重新同步；不要改名冒充修复。

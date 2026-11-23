@@ -31,14 +31,14 @@
 - `{书名}/正文.md` — 短篇正文
 - `{书名}/设定/` — 角色、世界和题材设定
 - `{书名}/大纲/` — 卷纲与逐章细纲
-- `{书名}/追踪/` — `_tracking-state.json` 为唯一结构化权威；追踪工具生成固定 7 栏 `上下文.md`、逐章记录、核心角色快照、伏笔视图和作者/读者双时间线
+- `{书名}/追踪/` — 以 `_tracking-state.json` 为唯一底账，自动生成固定 7 栏 `上下文.md`、逐章记录、核心角色状态卡、伏笔清单和作者/读者双时间线
 - `{书名}/对标/` — 当前项目引用的对标分析
 
 ## ZCode 项目约定
 
 - 写正文前必须先有对应大纲：长篇需要 `大纲/细纲_第N章*.md`，短篇需要 `小节大纲.md`。PreToolUse Hook 会做机械守卫，Skill 流程本身也必须遵守。
 - 正文写入后，PostToolUse Hook 会检查落盘、截断、占位符、工程词泄漏、复读和标题重复；字数只由写作流程最终的一次 `chapter check` 测量。
-- ZCode 支持插件子代理。`story-architect`、`narrative-writer`、`consistency-checker` 等角色由已启用的 oh-story 插件注册，通过 `Agent` 工具按实际 schema 派发；不检查 `.zcode/agents/`，不因宿主名固定降级。仅所需角色/工具缺失或调用失败时 solo/direct，技术备注写 `Fallback: project custom agents unavailable -> solo`；缺角色时更新/启用插件后新开会话。
+- ZCode 支持插件子代理。`story-architect`、`narrative-writer`、`consistency-checker` 等角色由已启用的 oh-story 插件注册，通过 `Agent` 工具按实际 schema 派发；不检查 `.zcode/agents/`，不因宿主名固定降级。仅所需角色/工具缺失或调用失败时 solo/direct（用一句白话提醒作者）；缺角色时更新/启用插件后新开会话。
 - 不读取 `.zcode/rules` 或嵌套 `AGENTS.md`；关键规则以本文件和对应 Skill 为准。
 
 ## 与作者协作

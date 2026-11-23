@@ -172,16 +172,43 @@ try {
 
   fs.writeFileSync("book/正文/第002章_续写.md", "已有正文。\n", "utf8");
   await before("edit", { path: "book/正文/第002章_续写.md" });
+  // 损坏的 _tracking-state.json（100% 确定性错误）仍须硬拦
+  fs.writeFileSync("book/追踪/_tracking-state.json", "{corrupt-json\n", "utf8");
+  await assert.rejects(
+    () => before("edit", { path: "book/正文/第002章_续写.md" }),
+    /无法解析/,
+    "corrupt _tracking-state.json must still hard-block"
+  );
+  // 手工修改 上下文.md 导致状态修订不一致：软门禁放行（不 throw），并在 execute.after 附上非阻断提醒
   fs.writeFileSync(
     "book/追踪/_tracking-state.json",
     JSON.stringify({ schema_version: 4, state_revision: 1, last_committed_chapter: 0 }) + "\n",
     "utf8"
   );
-  await assert.rejects(
-    () => before("edit", { path: "book/正文/第002章_续写.md" }),
-    /mode=revision 事务重建派生视图/,
-    "existing prose revision must be blocked while derived state is inconsistent"
+  await before("edit", { path: "book/正文/第002章_续写.md" });
+  const revAfterOutput = await after("edit", { path: "book/正文/第002章_续写.md" }, "edit complete");
+  assert.match(revAfterOutput, /写正文前软门禁提醒/);
+  assert.match(revAfterOutput, /状态修订/);
+
+  // 上一章疑似毒句式 + 跳章首建：均软门禁放行（不 throw），并在 execute.after 附上提醒
+  writeCleanState("book", 1);
+  fs.writeFileSync(
+    "book/正文/第001章_开局.md",
+    `${"街灯一盏盏亮起。".repeat(30)}\n声音不大，却带着一股狠劲。他声音不高，却压住了整间屋子。\n他把门关上了。\n`,
+    "utf8"
   );
+  fs.writeFileSync("book/大纲/细纲_第6章.md", "# 细纲\n江晨在雨夜推开旧书店的门，发现柜台后坐着失踪三年的师父，两人对视良久。\n", "utf8");
+  await before("write", { path: "book/正文/第006章_跳章.md" });
+  const jumpAfterOutput = await after("write", { path: "book/正文/第006章_跳章.md" }, "write complete");
+  assert.match(jumpAfterOutput, /写正文前软门禁提醒/);
+  assert.match(jumpAfterOutput, /有意跳章起草/);
+  fs.writeFileSync("book/大纲/细纲_第2章.md", "# 细纲\n江晨在雨夜推开旧书店的门，发现柜台后坐着失踪三年的师父，两人对视良久。\n", "utf8");
+  fs.unlinkSync("book/正文/第002章_续写.md");
+  await before("write", { path: "book/正文/第002章_续写.md" });
+  const toxicAfterOutput = await after("write", { path: "book/正文/第002章_续写.md" }, "write complete");
+  assert.match(toxicAfterOutput, /写正文前软门禁提醒/);
+  assert.match(toxicAfterOutput, /疑似 AI 毒句式/);
+  fs.writeFileSync("book/正文/第002章_续写.md", "已有正文。\n", "utf8");
   writeCleanState("book", 3);
 
   await assert.rejects(
@@ -203,7 +230,7 @@ try {
   await before("patch", { patchText: addPatch("book/正文/第004章_补丁.md") });
 
   // *** Move to: 是 patch 的搬家/改名形态，落盘路径是目的地。目标抽取的各形态（Delete+Move、
-  // 搬出 正文/、纯 Delete）归 test-prose-net-parity.sh B 段；这里只验插件把 patchText 交给核、
+  // 搬出 正文/、纯 Delete）归 test-story-hook-core.mjs；这里只验插件把 patchText 交给核、
   // 并按目的地章号拦下（源 draft.md 不是正文，本就不该被判）。
   const movePatch = (source, destination) =>
     `*** Begin Patch\n*** Update File: ${source}\n*** Move to: ${destination}\n+正文第一句。\n*** End Patch\n`;
@@ -330,9 +357,15 @@ try {
     .map((part) => part.text)
     .join("\n")
     .replace(/\\/g, "/");
-  assert(compactText.includes("Writing context: book/追踪/上下文.md"), `compaction context should mention the active book, got: ${compactText}`);
+  assert(
+    compactText.includes("Writing context: book/追踪/上下文.md"),
+    `compaction context should mention the active book, got: ${compactText}`
+  );
 
-  // session.context：主会话首轮请求注入部署状态、当前书目上下文与连续性提醒；同会话后续轮次与子代理跳过。
+  // session.context：主会话首轮请求注入部署状态、agents_version 过期提醒、当前书目上下文与连续性提醒；同会话后续轮次与子代理跳过。
+  const currentAgentsVer = JSON.parse(
+    fs.readFileSync(path.join(repoRoot, "scripts/current-contract.json"), "utf8")
+  ).agents_version;
   fs.writeFileSync(".story-deployed", "target_cli: claude-code\n", "utf8");
   const subagentCtx = { sessionID: "ses_1", agent: "consistency-checker", system: [] };
   await hooks.session.context(subagentCtx);
@@ -341,12 +374,32 @@ try {
   const primaryCtx = { sessionID: "ses_1", agent: "code", system: [] };
   await hooks.session.context(primaryCtx);
   assert.equal(primaryCtx.system.length, 1);
+  assert.match(primaryCtx.system[0].text, /缺少数字 agents_version/);
   assert.match(primaryCtx.system[0].text, /当前部署标记未包含 opencode/);
   assert.match(primaryCtx.system[0].text.replace(/\\/g, "/"), /\[story context\] 当前书目：book。继续长篇写作前先读取 book\/追踪\/上下文\.md。/);
 
   const secondTurnCtx = { sessionID: "ses_1", agent: "code", system: [] };
   await hooks.session.context(secondTurnCtx);
   assert.equal(secondTurnCtx.system.length, 0, "same session must not re-inject session context on every turn");
+
+  fs.writeFileSync(".story-deployed", `agents_version: ${currentAgentsVer - 1}\ntarget_cli: opencode\n`, "utf8");
+  const staleVerCtx = { sessionID: "ses_stale", agent: "code", system: [] };
+  await hooks.session.context(staleVerCtx);
+  assert.match(staleVerCtx.system[0].text, new RegExp(`低于 v${currentAgentsVer}`));
+  assert.match(staleVerCtx.system[0].text, /\/story-setup/);
+
+  fs.writeFileSync(".story-deployed", `agents_version: ${currentAgentsVer + 1}\ntarget_cli: opencode\n`, "utf8");
+  const futureVerCtx = { sessionID: "ses_future", agent: "code", system: [] };
+  await hooks.session.context(futureVerCtx);
+  assert.match(futureVerCtx.system[0].text, new RegExp(`高于本 hook 支持的 v${currentAgentsVer}`));
+  assert.match(futureVerCtx.system[0].text, /不要降级覆盖/);
+
+  fs.writeFileSync(".story-deployed", `agents_version: ${currentAgentsVer}\ntarget_cli: opencode\n`, "utf8");
+  const currentVerCtx = { sessionID: "ses_current", agent: "code", system: [] };
+  await hooks.session.context(currentVerCtx);
+  assert.ok(!currentVerCtx.system[0].text.includes(`低于 v${currentAgentsVer}`));
+  assert.ok(!currentVerCtx.system[0].text.includes("高于本 hook"));
+  assert.ok(!currentVerCtx.system[0].text.includes("缺少数字 agents_version"));
   fs.unlinkSync(".story-deployed");
 
   // 共享核 staged commit 检查也会拉 git。直接调用已部署布局中的真实模块，代理只记录并

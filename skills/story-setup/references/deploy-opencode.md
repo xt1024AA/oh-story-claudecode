@@ -20,7 +20,7 @@
 | `skills/story-setup/references/opencode/AGENTS.md.tmpl` | `AGENTS.md` | user+managed | managed block merge | contains story skill routing sections |
 | `skills/story-setup/references/opencode/agents/` | `.opencode/agents/` | story-setup managed | replace | 7 agent files exist（replace 前按下方「保留已有模型配置」缓存现有 `model:`，避免覆盖用户已配模型） |
 | `skills/story-setup/references/opencode/plugin.ts` | `.opencode/plugins/story-hooks.ts` | story-setup managed | replace | TypeScript plugin file exists |
-| `skills/story-setup/references/opencode/story_hook_core.js` | `.opencode/plugins/lib/story_hook_core.js` | story-setup managed | replace | Node syntax valid；与 ZCode 副本字节一致；被 story-hooks.ts import |
+| `skills/story-setup/references/opencode/story_hook_core.js` | `.opencode/plugins/lib/story_hook_core.js` | story-setup managed | replace | Node syntax valid；与 Claude/Codex/ZCode/Antigravity 副本字节一致；被 story-hooks.ts import |
 | `skills/story-setup/references/opencode/commands/` | `.opencode/commands/` | story-setup managed | replace | 14 command files exist |
 | repository `skills/story-setup/references/agent-references/` | `skills/story-setup/references/agent-references/` | story-setup managed | replace | every reference resolves |
 | `skills/story-setup/references/opencode/pre-commit.sh` | `.git/hooks/pre-commit` | user+managed | append or create | file exists and is executable；含 marker 块则替换块内容，不含则检测 exit 0 位置智能插入 |
@@ -30,7 +30,7 @@
 1. **先缓存已有模型配置**：执行下方「配置 Agent 模型」的「保留已有模型配置」，再做第 2 步的 replace。先覆盖会丢失用户已配模型。
 2. 复制 `references/opencode/agents/` 到 `.opencode/agents/`。Agent 正文以 Claude Code Markdown 为真源，这里是仓库里预生成的产物，部署只做复制。
 3. 复制 `plugin.ts` 到 `.opencode/plugins/story-hooks.ts`，`story_hook_core.js` 到 `.opencode/plugins/lib/`，`commands/` 到 `.opencode/commands/`，`pre-commit.sh` 按清单行合并进 `.git/hooks/pre-commit`。
-4. 复制 agent references 到 `skills/story-setup/references/agent-references/`。OpenCode 只使用当前规范前缀 `skills/`，不在运行时遍历历史备选路径。
+4. 按 SKILL.md 先清理 `skills/story-setup/references/agent-references/` 内源端已退役的旧文件（`status: safe` 时），再复制当前 agent references。OpenCode 只使用当前规范前缀 `skills/`，不在运行时遍历历史备选路径。
 5. 将 `references/opencode/AGENTS.md.tmpl` 按 SKILL.md「项目指令合并」写入根 `AGENTS.md`（`--host opencode`）。
 6. 执行「配置 Agent 模型」其余步骤。
 7. `.story-deployed` 的 `references_dir` 写 `skills/story-setup/references/agent-references`（多端时与其他端逗号拼接）。
@@ -69,9 +69,9 @@ OpenCode agents 部署是 `replace`，会覆盖上次写入的 `model:`。所以
 
 ### 逐级交互选择
 
-按 低端 → 中端 → 高端 顺序，每级用 AskUserQuestion 让用户选择。问题只用作者能懂的角色名；括号里的内部 agent 名只写在技术备注里，不放进问题。
+按 低端 → 中端 → 高端 顺序，每级用 AskUserQuestion 让用户选择。问题只用作者能懂的角色名；括号里的内部 agent 名只写在部署明细里，不放进问题。
 
-| 等级 | 问作者的话 | 技术备注：对应 agent |
+| 等级 | 问作者的话 | 部署明细：对应 agent |
 |------|-----------|---------------------|
 | 低端 | 「拆书助手、资料检索员和校对员做的是翻找和核对，给它们选哪个模型？便宜的就够用。」 | chapter-extractor（拆书助手）、story-explorer（资料检索员）、consistency-checker（校对员） |
 | 中端 | 「人物设计师和资料研究员整理设定与资料，给它们选哪个模型？」 | character-designer（人物设计师）、story-researcher（资料研究员） |
@@ -89,7 +89,7 @@ OpenCode agents 部署是 `replace`，会覆盖上次写入的 `model:`。所以
 ```
 
 规则：
-- 候选最多显示 5 个，超过则截断并提示"更多模型请使用自定义输入"。**每一级无论候选数是否为 0 都用 AskUserQuestion 弹出**，选项至少含：候选模型（如有）、`自定义输入`、`保留现有模型`（「保留已有模型配置」缓存到该 agent 的 model，无则不显示此项）、`跳过，用主模型`。候选为 0 时仍弹窗，并在问题说明里给出对应警告 + 列出未分级/未入档模型供参考——不再静默跳过交互（否则用户够不到自定义输入）。
+- 候选最多显示 5 个，超过则截断并提示"更多模型请使用自定义输入"。**每一级无论候选数是否为 0 都用 AskUserQuestion 弹出**，选项至少含：候选模型（如有）、`自定义输入`、`保留现有模型`（「保留已有模型配置」缓存到该 agent 的 model，无则不显示此项）、`跳过，用主模型`。候选为 0 时仍弹窗，并在问题说明里给出对应警告 + 列出未分级/未入档模型供参考——不再直接跳过交互（否则用户够不到自定义输入）。
 - `自定义输入`：用户输入 `provider/model-id` 完整 ID；写入前校验为单行、无控制字符、匹配 `^[A-Za-z0-9._-]+/[A-Za-z0-9._:+-]+$`，不符则提示重输或改选跳过。
 - `保留现有模型`：写回「保留已有模型配置」缓存的该 agent model（重新部署时保住用户上次配置），不算"跳过"。写手的缓存模型按本次分级落在低端或中端时（旧版把写手按中端配），高端这级的问题说明加一句「写手上次配的是中档模型，写正文建议换高端的」，推荐重选。
 - `跳过，用主模型`：显式清除——不写该 agent 的 `model:`，agent 继承主模型。想保留上次配置请选 `保留现有模型`。
@@ -127,7 +127,7 @@ model: provider/model-id
 
 - 检查 `.opencode/agents/` 下的 7 个 agent 定义文件是否存在，且 frontmatter 包含 `mode: subagent` 和 `permissions` 规则列表
 - 检查 `.opencode/plugins/story-hooks.ts` 是否存在
-- 检查 `.opencode/plugins/lib/story_hook_core.js` 存在且 `node --check` 通过（story-hooks.ts import 之，与 `.zcode` 副本字节一致的共享写正文守卫核；置于 `lib/` 子目录以避开 OpenCode 对 `.opencode/plugins/*.js` 的插件自动发现，`lib/` 里不得放 `index.*` / `server.*`）
+- 检查 `.opencode/plugins/lib/story_hook_core.js` 存在且 `node --check` 通过（story-hooks.ts import 之，与 Claude/Codex/ZCode/Antigravity 副本字节一致的共享写正文守卫核；置于 `lib/` 子目录以避开 OpenCode 对 `.opencode/plugins/*.js` 的插件自动发现，`lib/` 里不得放 `index.*` / `server.*`）
 - 检查 `.opencode/commands/` 下的 14 个 command 文件是否存在
 - 按源目录相对路径核对 `skills/story-setup/references/agent-references/`，含子目录
 - 检查 `opencode.json` / `opencode.jsonc`（如有）的 `plugin`、`plugins` 数组不再含指向 story-hooks.ts 的项

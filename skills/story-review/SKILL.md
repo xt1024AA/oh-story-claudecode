@@ -6,11 +6,11 @@ metadata: {"openclaw":{"source":"https://github.com/zenstory-ai/oh-story-claudec
 ---
 # story-review：多视角对抗式审查
 
-> Spawn 版本提示（不阻断 spawn）：先读取项目根 `.story-deployed` 的 `agents_version`。与本版 `agents_version: 42` 不一致时（标记缺失、字段缺失/非整数、小于或大于 42）**照常按当前宿主角色来源检查并 spawn**；同时在「这次怎么审的」里用一句白话提示作者「审稿助手是旧版，运行 /story-setup（ZCode 先更新插件）后新开会话」，`Notice: agents bundle 版本不匹配（项目 {N}，本版 42）` 原文写进技术备注行；大于 42 时额外提示先更新 oh-story-claudecode，不要用本地旧版 setup 降级覆盖。版本提示本身不触发降级；文件缺失或异常、工具不可用、递归限制或调用失败按 Phase 0 处理，技术备注写 `Fallback: ... -> solo`。
+> 版本：先读取项目根 `.story-deployed` 的 `agents_version`。与本版 `agents_version: 45` 不一致时（标记缺失、字段缺失/非整数、小于或大于 45）**照常按当前宿主角色来源检查并 spawn**；同时在「这次怎么审的」里用一句白话提示作者「审稿助手是旧版，运行 /story-setup（ZCode 先更新插件）后新开会话」；大于 45 时额外提示先更新 oh-story-claudecode，不要用本地旧版 setup 降级覆盖。版本提示本身不触发降级；文件缺失或异常、工具不可用、递归限制或调用失败按 Phase 0 处理，在「这次怎么审的」里用一句白话说明，不另加技术备注行。
 
 你负责协调审查，找出小说的结构、角色、文字与设定问题，给出有原文依据的修改建议。
 
-**执行铁律：审查是找问题，不是验证正确性。**
+**执行铁律：审查只管挑毛病，不为原稿背书。**
 
 **文风裁决**：先读 [references/style-resolution.md](references/style-resolution.md)，加载本书文风，复用调用方的 `style_resolution` 与作者偏好；单独调用时按当前请求与本书文风裁决。同一裁决交给后续执行者。
 
@@ -35,10 +35,10 @@ metadata: {"openclaw":{"source":"https://github.com/zenstory-ai/oh-story-claudec
       - **Codex agent（`.codex/agents/`）**：文件名为 `{agent}.toml`，TOML 必须可解析，且包含 `name`、`description`、`developer_instructions`；`name` 必须与目标 agent 完全一致。
       - **Antigravity agent（`.agents/agents/`）**：路径为 `.agents/agents/agent-name/agent.md`（`agent-name` 为目标 agent 名），frontmatter 必须可解析，且 `name` 与目标 agent 一致、`mainAgent: false`、`subagent: true`、`tools` 非空；缺失或不匹配视为 malformed。
       - **ZCode plugin agent**：注册名与目标角色一致；可读定义须有可解析的 `name`、`description` 和正文。定义不可直接读时以运行时注册为准，不扫描其他端文件。
-   - 任一必需角色缺失或 malformed 时不尝试派发，降级 `solo`；白话说明助手缺失或损坏，并建议当前宿主重部署（ZCode 更新/启用 oh-story 插件后新开会话）。`missing agents -> solo` / `malformed agents -> solo` 与问题角色/文件写进技术备注 Fallback、Files 两栏。
-5. **确认 Agent 工具可用**：Claude/OpenCode/Codex 需要当前运行时的子 Agent/Task 工具，Antigravity 需要 `invoke_subagent`，ZCode 用 `Agent` 按当前 schema 派发注册角色；不可用时降级 `solo`，技术备注写 `Fallback: agent tool unavailable -> solo`。
-6. **运行时失败降级**：如果任何 Agent spawn 返回失败、`subagent_type` / `agent` / `agent_type` / `TypeName` 不可用、frontmatter/TOML 运行时解析失败或子 Agent 无法启动，停止继续 spawn，改用 `solo` 重新审查，技术备注写 `Fallback: spawn failed -> solo` 与失败的 agent 名；不要把部分成功的 Agent 结果当成 full/lean 结论。
-7. **确定实际模式**：请求模式与实际模式都写进报告末尾的技术备注行。
+   - 任一必需角色缺失或 malformed 时不尝试派发，降级 `solo`；在「这次怎么审的」里白话说明审稿助手缺失或损坏，并建议当前宿主重部署（ZCode 更新/启用 oh-story 插件后新开会话）。
+5. **确认 Agent 工具可用**：Claude/OpenCode/Codex 需要当前运行时的子 Agent/Task 工具，Antigravity 需要 `invoke_subagent`，ZCode 用 `Agent` 按当前 schema 派发注册角色；不可用时降级 `solo`，在「这次怎么审的」里用白话说明由当前会话直接审。
+6. **运行时失败降级**：如果任何 Agent spawn 返回失败、`subagent_type` / `agent` / `agent_type` / `TypeName` 不可用、frontmatter/TOML 运行时解析失败或子 Agent 无法启动，停止继续 spawn，改用 `solo` 重新审查，并在「这次怎么审的」里用白话说明审稿助手未能启动、改为单人审；不要把部分成功的 Agent 结果当成 full/lean 结论。
+7. **确定实际模式**：在报告开头「这次怎么审的」里用白话说明实际审查方式与降级原因（如有），不另加技术备注行。
 
 ---
 
@@ -48,11 +48,7 @@ metadata: {"openclaw":{"source":"https://github.com/zenstory-ai/oh-story-claudec
 
 ### 报告面向作者（必须遵守）
 
-报告写给作者：审了什么、哪里要改、为什么（用读者感受和故事后果说，附原文引用）、要作者拍板的事、下一步。reviewer 名、S1–S4、Gate、检测器类别名、脚本名、PASS/FAIL、文件字段名不进正文；位置写「第 N 章「引文」」或「第 N 章第 M 段」。优先级换成白话（小节标题照模板）：S1、S2 → **必须改**，S3 → **建议改**，S4 → **可以不改**。执行路径只写在报告最后一行，格式固定：
-
-```text
-技术备注：Mode {请求}→{实际} · Fallback {none | project custom agents unavailable -> solo | missing agents -> solo | malformed agents -> solo | agent tool unavailable -> solo | spawn failed -> solo | subagent recursion guard -> solo} · Rubric {fanqie | qidian | zhihu | generic} ({file | embedded})[ · Files {缺失或异常的 agent 文件}][ · Notice {版本不匹配原文}]
-```
+报告写给作者：审了什么、哪里要改、为什么（用读者感受和故事后果说，附原文引用）、要作者拍板的事、下一步。reviewer 名、S1–S4、Gate、检测器类别名、脚本名、PASS/FAIL、文件字段名不进正文；位置写「第 N 章「引文」」或「第 N 章第 M 段」。优先级换成白话（小节标题照模板）：S1、S2 → **必须改**，S3 → **建议改**，S4 → **可以不改**。不加技术备注行：审查方式、是否降级单人审、是否用了内置标准以及助手版本提示，都在报告开头「这次怎么审的」里用白话说清。
 
 ### 参考资料解析顺序
 
@@ -80,11 +76,11 @@ metadata: {"openclaw":{"source":"https://github.com/zenstory-ai/oh-story-claudec
 
 ### 内置审查基准包（路径不可读时必用）
 
-如果上述参考文件在当前项目中不可读，**不要把审查降级为无 rubric，也不要在报告里说“无法加载具体 rubric”后停止使用标准**。必须使用本节内置基准包，技术备注行的 Rubric 来源写 `embedded`。
+如果上述参考文件在当前项目中不可读，**不要把审查降级为无 rubric，也不要在报告里说“无法加载具体 rubric”后停止使用标准**。必须使用本节内置基准包，并在「这次怎么审的」里注明按内置标准审查。
 
 通用网文内容 rubric：
 - 核心卖点：本章是否围绕明确卖点推进；看不出卖点至少 S2。
-- 冲突推进：本章是否有阻碍、选择、代价或关系变化；只解释/闲聊/总结至少 S2。
+- 冲突推进：本章是否有阻碍、选择、代价、信息或关系变化（日常/过渡章按细纲定位看关系、经营或铺垫推进，不强求硬冲突）；只解释/闲聊/总结至少 S2。
 - 任务卡点：角色办事被卡住时，是否卡出信息、关系、代价、选择或伏笔变化；卡点只剩流程细节、删掉不影响故事至少 S3。
 - 情绪曲线：是否有铺垫、升温、释放或反转；情绪平直或突兀至少 S2/S3。
 - 钩子与期待：开头或结尾是否制造后续问题；没有悬念或未完成期待至少 S2。
@@ -92,13 +88,13 @@ metadata: {"openclaw":{"source":"https://github.com/zenstory-ai/oh-story-claudec
 - 角色动机：行为是否符合目标、性格、处境和关系压力；为剧情服务而失真是 S1/S2。
 - 对话质量：是否有潜台词、信息控制、角色差异；说明书式对话至少 S2。
 - 设定一致性：不违背已写规则、时间线、角色属性；明确事实冲突通常 S1。
-- 文字自然度：具体、可感、动作承载信息；AI 腔、陈词滥调、总结体按影响定 S2/S3。
-- 句长节奏：按本书文风、语义承接与场景功能判断；机械碎句、动作清单或臃肿长句按影响定 S3/S2。
-- 标点节奏：标点是否服务语气/人物声线；通篇句号化、随机堆砌问号/感叹号，或残留 `……`/`——` 硬造停顿，按影响定 S3/S2。
+- 文字自然度：具体、可感，直写情绪、算账判断、台词与有后果动作四条通道按需选用；AI 腔、陈词滥调、总结体或无后果手眼/道具微动作代偿情绪按影响定 S2/S3。
+- 句长节奏：按本书文风、语义承接与场景功能判断（区分意思走完的一句一段与三五字切碎的残句）；机械碎句、动作清单或臃肿长句按影响定 S3/S2。
+- 标点节奏：标点服务语气与声线（对话内 `——` 与有节制的 `……` 可用）；通篇句号化、随机堆砌问号/感叹号，或旁白未入白名单的 `——` 及 `……` 刷屏，按影响定 S3/S2。
 - 具体字数表达校验：正文用“这五个字 / 短短四字”等具体字数评价台词、题字、信件、念头或弹幕时，须确认统计口径正确且有叙事必要；无法确认时按文字自然度问题处理，建议改成“这句话一落”“那几个字”等非具体数字表达。
 - 格式可读性：段落短、对话独立、无多余空行；格式阻碍阅读按 S3，严重混乱按 S2。
-- 剧情循环：目标 → 阻碍 → 行动 → 代价/反馈 → 新期待；缺少目标/阻碍/反馈通常至少 S2。
-- 高潮构建：检查蓄能、情绪落差与兑现；强反转可用蓄能 → 假胜 → 崩解 → 反转/兑现，缺铺垫或兑现通常 S2/S3。
+- 剧情循环：目标 → 阻碍/变数 → 行动 → 代价/反馈 → 新期待；紧章缺少目标/阻碍/反馈通常至少 S2，松的章/过渡章至少交代目标、行动与状态变化。
+- 高潮构建：有高潮的章检查蓄能、情绪落差与兑现（强反转可用蓄能 → 假胜 → 崩解 → 反转/兑现），缺铺垫或兑现通常 S2/S3；细纲标明无高潮的松章看功能是否落地。
 - 关系进展：互动尺度必须匹配当前关系阶段；越界亲密、突然信任、突然敌对都需要铺垫，否则按影响定 S1/S2。
 - 伏笔状态：伏笔状态需可追踪；伏笔密度只作为结构风险提示，除非直接造成理解混乱，否则不升级到 S2+。
 
@@ -106,7 +102,7 @@ metadata: {"openclaw":{"source":"https://github.com/zenstory-ai/oh-story-claudec
 - 表达：套词、总结句、工整句式是否机械复现或重复意思？词语本身只是线索，直写情绪、纠错对比与文风允许的叙述可保留。
 - 用笔：关键交锋或决定是否被概括，次要流程是否过详？压缩、展开均应保住人物体验和必要承接。
 - 故事：行动有什么来由、解决依据从何而来、前后改变了什么？安静场景可承载关系与认知变化，不强求冲突。
-- 处理原则：有原文证据才输出 finding，指出阅读损失、最小建议与资料限制；只报告，不落改，不默认拆短、加动作或新增剧情。
+- 处理原则：有原文证据才输出 finding，指出哪里影响读感、最小建议与资料限制；只报告，不落改，不默认拆短、加动作或新增剧情。
 
 平台 fallback 摘要（叠加在通用 rubric 上）：
 - 番茄长篇：强开局、强冲突、高频爽点/情绪反馈、低理解门槛。
@@ -136,19 +132,19 @@ metadata: {"openclaw":{"source":"https://github.com/zenstory-ai/oh-story-claudec
      | 长篇 | 起点 | `story-review/references/rubrics/qidian.md` |
      | 长篇 | 番茄 | `story-review/references/rubrics/fanqie.md` |
      | 长篇 | 晋江、其他、未定、没写 | 不叠加 |
-     | 短篇 | 知乎盐言（也写作盐选）、番茄、七猫、黑岩、红果、小程序、未定、没写 | `story-review/references/rubrics/zhihu.md` |
+     | 短篇 | 知乎盐言（也写作盐选）、番茄、七猫、黑岩、小程序、未定、没写 | `story-review/references/rubrics/zhihu.md` |
 
    - 短篇另按 `设定.md`「平台基调」核对格式、引号和导语。
-   - 技术备注行的 Rubric 写叠加的平台表（`fanqie | qidian | zhihu`），不叠加写 `generic`；括号里文件可读写 `file`，用了内置摘要写 `embedded`。
-5. **形成审查基准包摘要**：把已加载的文件内容或内置 fallback 摘要压缩为 5-12 条审查标准，供后续 solo 和子 Agent 共用（保留剧情循环、高潮构建、关系进展、默认逗号长句反电报体各一条，审第 1-3 章时再加开头新鲜度）。
+   - 在「这次怎么审的」里用白话说明按通用网文标准及叠加的平台要求（若有）审查。
+5. **形成审查基准包摘要**：把已加载的文件内容或内置 fallback 摘要压缩为 5-12 条审查标准，供后续 solo 和子 Agent 共用（保留剧情循环、高潮构建、关系进展、连贯句段反电报碎句各一条，审第 1-3 章时再加开头新鲜度）。
 6. **确定性预检（只报告，不修改）**：当审查范围包含本地正文文件路径时，运行本 skill 自带脚本：
    ```bash
    node scripts/normalize-punctuation.js --check <正文文件...>
-   node scripts/check-ai-patterns.js --check --fail-on=blocking <正文文件...>
+   node scripts/check-ai-patterns.js --check --fail-on=review_required <正文文件...>
    node scripts/check-degeneration.js --check <正文文件...>
    ```
-   - `ellipsis`、`double-hyphen`、`markdown-divider` 归入 `format` findings；`em-dash` 只采用 `check-ai-patterns.js` 的语义改写建议（去重丢弃 `normalize-punctuation.js` 同位置的 `em-dash`）；默认 `--quote-mode keep`。另人工检查标点节奏是否通篇句号化或随机堆砌。
-   - `check-ai-patterns.js` 的 blocking / advisory 作为 `prose` 候选，按 `style_resolution`、原文功能及 `expression.md` / `narrative-focus.md` / `story-logic.md` 复核，确认造成具体阅读损失后按下方严重度定级；功能性纠错、叙述与停顿保留。
+   - `ellipsis`、`double-hyphen`、`markdown-divider` 归入 `format` findings；旁白引号外的 `em-dash` 只采用 `check-ai-patterns.js` 的语义改写建议（去重丢弃 `normalize-punctuation.js` 同位置的 `em-dash`；对话引号内被打断或拖音的 `——` 不报错）；默认 `--quote-mode keep`。另人工检查标点节奏是否通篇句号化或随机堆砌。
+   - `check-ai-patterns.js` 的 `review_required` / `advisory` 作为 `prose` 候选，按 `style_resolution`、原文功能及 `expression.md` / `narrative-focus.md` / `story-logic.md` 复核，确认确实影响读感后按下方严重度定级；功能性纠错、叙述与停顿保留。
    - `check-degeneration.js` 的 blocking（复读/截断/tier1 工程词）作为 S1/S2 `prose` findings（建议“重新生成该段，不是改写”），advisory（tier2 章节/歧义词）作为 S3。
    - `story-review` **不修改正文、设定或大纲文件**（需自动修复正文建议转 `/story-deslop`）；仅 full/lean 的「追踪文件维护」可修改 `追踪/`，分批审查可按 batch-review.md 写 **.story-review/state.md**。
 
