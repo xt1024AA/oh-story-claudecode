@@ -6,10 +6,10 @@
  * 1. **永不抛异常**：spawn 失败、超时、中止都收敛成同一个 `outcome` 对象，
  *    由调用方（各工具）翻译成信封里的错误。工具 `execute` 的兜底因此永远简单。
  *
- * 2. **编码是 utf8**：storyctl.py 特意把协议 JSON 按 UTF-8 字节写 stdout
- *   （`storyctl.py:62-68` 的注释直说 Windows runner 可能是 cp1252 控制台），
- *   Node 侧就按 utf8 解码，两边都避开系统代码页。检测器是 Node 脚本，写管道
- *   时 Node 也总是 utf8。
+ * 2. **编码是 utf8**：v0.11.0 起 `storyctl.js` 用 `process.stdout.write` 把协议
+ *   JSON 按 UTF-8 字节写出（`jsonLine()`，末尾单个换行），Node 侧按 utf8 解码，
+ *   两边都避开系统代码页（`chcp` 65001/936 都不影响）。检测器同样是 Node 脚本，
+ *   写管道时总是 utf8。
  *
  * 3. **两种 stdout/stderr 传输，行为等价**：
  *    - 默认**管道（pipe）**：流式收集，有上限截断（2 MiB）。生产环境用这条。

@@ -19,12 +19,14 @@ import { ERROR_CODES, toolError } from "../runtime/errors.js";
 export function countFindings(findings) {
   const total = Array.isArray(findings) ? findings.length : 0;
   let blocking = 0;
+  let reviewRequired = 0;
   let advisory = 0;
   for (const f of Array.isArray(findings) ? findings : []) {
     if (f?.severity === "blocking") blocking += 1;
+    else if (f?.severity === "review_required") reviewRequired += 1;
     else advisory += 1;
   }
-  return { total, blocking, advisory };
+  return { total, blocking, review_required: reviewRequired, advisory };
 }
 
 /** exit 2 的检测器故障 → 可读错误（这类脚本 exit 2 只往 stderr 打 die 文案，没有 JSON）。 */
@@ -58,8 +60,10 @@ export function createDetectorTool(runtime, spec) {
         },
         failOn: {
           type: "string",
-          enum: ["blocking", "all"],
-          description: "触发「有发现」判定（exit 1）的门槛：blocking=只看 blocking 级；all=任何 finding 都算。默认：" + defaultFailOn + "。",
+          enum: ["blocking", "review_required", "all"],
+          description:
+            "触发「有发现」判定（exit 1）的门槛：blocking=只看 hard blocking 级；" +
+            "review_required=blocking 或 review_required 级；all=任何 finding（含 advisory）。默认：" + defaultFailOn + "。",
         },
       },
       required: ["files"],
@@ -123,7 +127,10 @@ export function createDetectorTool(runtime, spec) {
         paths.push(check.path);
       }
 
-      const failOn = args.failOn === "all" || args.failOn === "blocking" ? args.failOn : defaultFailOn;
+      const failOn =
+        args.failOn === "all" || args.failOn === "blocking" || args.failOn === "review_required"
+          ? args.failOn
+          : defaultFailOn;
 
       const argv = ["--check", "--json", `--fail-on=${failOn}`, ...paths];
       const command = buildCommand("{node}", runtime.scripts[scriptKey], argv);
@@ -220,7 +227,7 @@ export function createDetectorTool(runtime, spec) {
 
       const notes = [
         hasFindings
-          ? `发现 ${counts.total} 处（blocking ${counts.blocking} / advisory ${counts.advisory}），failOn=${failOn} 门槛${outcome.exitCode === 1 ? "已触发（exit 1）" : "未触发（exit 0）"}。`
+          ? `发现 ${counts.total} 处（blocking ${counts.blocking} / review_required ${counts.review_required} / advisory ${counts.advisory}），failOn=${failOn} 门槛${outcome.exitCode === 1 ? "已触发（exit 1）" : "未触发（exit 0）"}。`
           : `未发现 finding（exit 0）。`,
         "检测器只报告不改写，本工具绝不改动文件。",
         ...extraNotes,

@@ -210,7 +210,7 @@ export function createInterpreterProbe(deps) {
           label: "宿主内置 Node",
           source: "host-fallback",
           tried,
-          note: "PATH 里没有可用 node，回退到宿主内置 Node（Electron-as-node）；与 storyctl.py 内部找 node 的口径不完全一致，仅本插件的检测器工具用它。",
+          note: "PATH 里没有可用 node，回退到宿主内置 Node（Electron-as-node）；与 storyctl.js 内部找 node 的口径不完全一致，仅本插件的检测器工具用它。",
         };
       }
     }

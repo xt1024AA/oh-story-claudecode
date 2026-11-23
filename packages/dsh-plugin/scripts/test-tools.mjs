@@ -51,14 +51,14 @@ const PACKAGE_DIR = resolve(import.meta.dirname, "..");
 const DEMO_BOOK = join(REPO_ROOT, "demo", "长篇", "让你管账号，你高燃混剪炸全网");
 const DEMO_AI_PRE = join(REPO_ROOT, "demo", "去AI味对照", "改前.md");
 const DEMO_AI_POST = join(REPO_ROOT, "demo", "去AI味对照", "改后.md");
-const TRACKING_SCRIPT = join(PACKAGE_DIR, "skills", "story-long-write", "scripts", "tracking_commit.py");
+const TRACKING_SCRIPT = join(PACKAGE_DIR, "skills", "story-long-write", "scripts", "tracking_commit.js");
 
 // 测试前先确认真实夹具在（避免「测试全绿但什么都没测」）
 for (const [label, p] of [
   ["demo 书目录", DEMO_BOOK],
   ["改前.md", DEMO_AI_PRE],
   ["改后.md", DEMO_AI_POST],
-  ["tracking_commit.py", TRACKING_SCRIPT],
+  ["tracking_commit.js", TRACKING_SCRIPT],
 ]) {
   if (!existsSync(p)) {
     console.error(`夹具缺失（${label}）：${p}`);
@@ -257,11 +257,11 @@ function makeDefs({ env = {}, allowHostNodeFallback = true, approval } = {}) {
 const approvalAllow = { request: async () => "allowed-once" };
 const approvalReject = { request: async () => "rejected" };
 
-/** 用 tracking_commit.py 生成第 N 章的事务 JSON（提交链路的前置）。 */
+/** 用 tracking_commit.js 生成第 N 章的事务 JSON（提交链路的前置）。 */
 async function runDraft(book, chapter = 21) {
   const rt = createRuntime({ env: process.env });
-  const ran = await rt.runPython(TRACKING_SCRIPT, ["draft", "--project", book, "--chapter", String(chapter)], {});
-  assert.ok(ran.ok, `tracking_commit.py draft 失败：${ran.error?.message ?? ""} ${ran.error?.nextStep ?? ""}`);
+  const ran = await rt.runNode(TRACKING_SCRIPT, ["draft", "--project", book, "--chapter", String(chapter)], {});
+  assert.ok(ran.ok, `tracking_commit.js draft 失败：${ran.error?.message ?? ""} ${ran.error?.nextStep ?? ""}`);
   if (ran.outcome.exitCode !== 0) {
     assert.fail(`draft exit=${ran.outcome.exitCode}\nstdout=${ran.outcome.stdout}\nstderr=${ran.outcome.stderr}`);
   }
@@ -346,11 +346,11 @@ test("A3: oh_story_env 报出可用解释器与脚本落点", async () => {
   const { defs } = makeDefs();
   const value = await execRegistered(defs.env, {}, process.cwd());
   assert.equal(value.ok, true);
-  assert.equal(value.result.python.ok, true, "Python 探测应成功");
-  assert.equal(value.result.node.ok, true, "Node 探测应成功");
+  assert.equal(value.result.node.ok, true, "Node 探测应成功（v0.11.0 起随包脚本全是 Node）");
   for (const s of value.result.scripts) assert.equal(s.exists, true, `脚本缺失：${s.key}`);
-  assert.ok(value.result.python.tried.length >= 1, "python 探测链至少记录 1 个候选");
   assert.ok(value.result.node.tried.length >= 1, "node 探测链至少记录 1 个候选");
+  // Python 只是可选诊断项：v0.11.0 起写作工具不再依赖它。
+  assert.ok(Array.isArray(value.result.python.tried), "python 探测结果仍应在信封里可读");
 });
 
 test("A4: wordcount measure 在真实章节上数出 2068 字（visible_chars_v1）", async () => {
@@ -362,7 +362,7 @@ test("A4: wordcount measure 在真实章节上数出 2068 字（visible_chars_v1
   assert.equal(value.result.actual, 2068, "可见字数应为 2068（#3 实测值）");
   assert.equal(value.result.status, "measured");
   assert.equal(value.result.metric, "visible_chars_v1");
-  assert.match(value.command, /storyctl\.py wordcount measure/);
+  assert.match(value.command, /storyctl\.js wordcount measure/);
 });
 
 test("A5: wordcount check 对 target 2300 判 internal_pass", async () => {
@@ -392,14 +392,16 @@ test("A6: wordcount checkpoint 用 project+chapter 给出剩余区间", async ()
   assert.equal(typeof value.result.target, "number");
 });
 
-test("A7: ai-patterns 在改前.md 上命中 8 处（7 blocking），exit 1 是业务结果", async () => {
+test("A7: ai-patterns 在改前.md 上命中 8 处（3 review_required），exit 1 是业务结果", async () => {
   const { defs } = makeDefs();
-  const value = await execRegistered(defs.aiPatterns, { files: [DEMO_AI_PRE], failOn: "blocking" }, process.cwd());
+  // v0.11.0 的三档 severity：当前句式规则没有 hard blocking，用 review_required 门槛才触发 exit 1。
+  const value = await execRegistered(defs.aiPatterns, { files: [DEMO_AI_PRE], failOn: "review_required" }, process.cwd());
   assert.equal(value.ok, true, "有发现是业务结果，不是故障");
   assert.equal(value.status, "findings");
   assert.equal(value.exitCode, 1);
   assert.equal(value.counts.total, 8, "demo 期望 8 处命中（README）");
-  assert.equal(value.counts.blocking, 7, "demo 期望 7 处 blocking");
+  assert.equal(value.counts.blocking, 0, "当前风格规则没有 hard blocking");
+  assert.equal(value.counts.review_required, 3, "demo 期望 3 处 review_required");
   assert.equal(value.result.findings.length, 8);
   assert.ok(value.result.findings[0].file && value.result.findings[0].type, "finding 应有 file/type");
 });
@@ -470,7 +472,7 @@ test("A12: chapter check 在真实书目录上返回 ready", async () => {
   assert.equal(value.result.length.actual, 2068);
 });
 
-test("A13: chapter check 超长（作者范围 500-1000）时 status=needs_decision 且副作用如实报出 baseline", async () => {
+test("A13: chapter check 超长（作者范围 500-1000）时 status=needs_decision、给压缩区间、零副作用", async () => {
   const { defs } = makeDefs();
   const book = freshBook("check-over");
   const value = await execRegistered(
@@ -481,10 +483,9 @@ test("A13: chapter check 超长（作者范围 500-1000）时 status=needs_decis
   assert.equal(value.ok, true);
   assert.equal(value.status, "needs_decision");
   assert.equal(value.result.compression.mode, "single_pass_remove_only");
-  const baseline = value.sideEffects.find(
-    (s) => s.kind === "file-added" && s.target.includes("over_length_baseline.json"),
-  );
-  assert.ok(baseline, `应有 over_length_baseline.json 副作用：${JSON.stringify(value.sideEffects)}`);
+  assert.ok(value.result.compression.remove_to_internal_band.max > 0, "应给出要删的字数上限");
+  // v0.11.0 起 chapter check 是纯只读：不再落 over_length_baseline.json。
+  assert.deepEqual(value.sideEffects, [], "chapter check 不应产生文件副作用");
 });
 
 test("A14: 正文带分隔线时 chapter check 返回 blocked（exit 1 是业务判定）", async () => {
@@ -609,14 +610,20 @@ test("A19: commit 审批通道不可用 + confirm=true 走显式确认回退并�
 
 // ────────────────────────── B 组：错误路径 ──────────────────────────
 
-test("B1: Python 不可用（OH_STORY_PYTHON 指向不存在的解释器）→ PYTHON_UNAVAILABLE 可读报错", async () => {
-  const { defs } = makeDefs({ env: { OH_STORY_PYTHON: "definitely-not-a-real-python-xyz" } });
+test("B1: Python 不可用不再挡路（v0.11.0 起随包脚本全是 Node）", async () => {
+  const { defs } = makeDefs({
+    env: { OH_STORY_PYTHON: "definitely-not-a-real-python-xyz" },
+    allowHostNodeFallback: false,
+  });
   const chapter = join(DEMO_BOOK, "正文", "第021章_离别怎么会开花.md");
   const value = await execRegistered(defs.wordcount, { action: "measure", file: chapter }, process.cwd());
-  assert.equal(value.ok, false);
-  assert.equal(value.error.code, "PYTHON_UNAVAILABLE");
-  assert.ok(value.error.message.length > 10, "报错应是人话");
-  assert.ok(value.error.nextStep, "应有下一步");
+  assert.equal(value.ok, true, "wordcount 应走 Node，不因 Python 缺失而失败");
+  assert.equal(value.result.actual, 2068);
+  const envValue = await execRegistered(defs.env, { recheck: true }, process.cwd());
+  assert.ok(
+    (envValue.notes ?? []).some((n) => /Python 不可用（不影响本插件）/.test(n)),
+    "env 应明说 Python 缺失不影响插件",
+  );
 });
 
 test("B2: Node 不可用（OH_STORY_NODE 指向不存在 + 关宿主回退）→ NODE_UNAVAILABLE", async () => {
@@ -640,7 +647,7 @@ test("B3: 随包脚本缺失（OH_STORY_SKILLS_DIR 指向空目录）→ SCRIPT_
   const value = await execRegistered(defs.wordcount, { action: "measure", file: chapter }, process.cwd());
   assert.equal(value.ok, false);
   assert.equal(value.error.code, "SCRIPT_MISSING");
-  assert.match(value.error.message, /storyctl\.py/);
+  assert.match(value.error.message, /storyctl\.js/);
   assert.ok(value.error.nextStep, "应有下一步");
 });
 
@@ -705,7 +712,7 @@ test("B9: 破坏性动作审批通道不可用且未 confirm → APPROVAL_REQUIR
   assert.equal(readFileSync(join(book, "追踪", "_tracking-state.json"), "utf8"), stateBefore, "fail closed：不得写");
 });
 
-test("B10: PATH 里没有 node → storyctl exit 3 → TOOL_UNAVAILABLE 且下一步指向装 Node", async () => {
+test("B10: PATH 里没有 node 且关掉宿主回退 → NODE_UNAVAILABLE（v0.11.0 起由插件直接探测 Node）", async () => {
   const stripped = envWithoutNode();
   if (!stripped.PATH) {
     console.log("      SKIP：沙箱 PATH 不可用，无法复现「PATH 里缺 node」场景");
@@ -715,9 +722,8 @@ test("B10: PATH 里没有 node → storyctl exit 3 → TOOL_UNAVAILABLE 且下�
   const book = freshBook("exit3");
   const value = await execRegistered(defs.chapterCheck, { project: book, chapter: 21 }, process.cwd());
   assert.equal(value.ok, false);
-  assert.equal(value.status, "tool_unavailable");
-  assert.equal(value.exitCode, 3);
-  assert.equal(value.error.code, "TOOL_UNAVAILABLE");
+  assert.equal(value.exitCode, -1);
+  assert.equal(value.error.code, "NODE_UNAVAILABLE");
   assert.match(value.error.nextStep, /Node/i);
 });
 

@@ -1,9 +1,10 @@
 /**
  * 解析原脚本 stdout 里的 JSON 协议。
  *
- * 契约（#3）：`storyctl.py` 的 stdout 恒为一行 UTF-8 JSON（`ensure_ascii=False` 直写
- * `sys.stdout.buffer`），末尾换行。检测器（check-ai-patterns / check-degeneration）
- * 的 `--json` 输出则是**多行缩进版** JSON（#3 实测：`{"findings": [...]}` 缩进式）。
+ * 契约（#3）：`storyctl.js` 的 stdout 恒为一行 UTF-8 JSON（`jsonLine()` 直接
+ * `JSON.stringify` 后 `process.stdout.write`，不转义非 ASCII），末尾换行。检测器
+ * （check-ai-patterns / check-degeneration）的 `--json` 输出则是**多行缩进版** JSON
+ * （#3 实测：`{"findings": [...]}` 缩进式）。
  *
  * 所以解析策略分三档，从严格到宽容：
  *   1. 整段 stdout trim 后直接能解析成 JSON 对象 → 用它（覆盖单行与多行两种）；

@@ -1,5 +1,5 @@
 /**
- * oh_story_wordcount —— 字数口径（storyctl.py wordcount 组）。
+ * oh_story_wordcount —— 字数口径（storyctl.js wordcount 组）。
  *
  * 契约（#3，story-script-contracts.md）：
  *   - `measure`：数一个正文文件的 visible_chars_v1 字数（纯只读）。
@@ -73,7 +73,7 @@ export function createWordcountTool(runtime) {
   return makeTool({
     name: TOOL_NAME,
     description:
-      "字数口径 visible_chars_v1（storyctl.py wordcount 组）的只读封装。" +
+      "字数口径 visible_chars_v1（storyctl.js wordcount 组）的只读封装。" +
       "action=measure 数单个正文文件的字数；action=check 按 target 判定 internal/user 字数带（target 必填）；" +
       "action=checkpoint 按 target 或 project（从细纲读目标）算本章剩余可写区间。返回 result 为脚本 JSON 原样。" +
       "绝不改写任何文件。",
@@ -259,15 +259,15 @@ export function createWordcountTool(runtime) {
         }
       }
 
-      const command = buildCommand("{python}", runtime.scripts.storyctl, argv);
-      const ran = await runtime.runPython(runtime.scripts.storyctl, argv, { signal: exec?.signal });
+      const command = buildCommand("{node}", runtime.scripts.storyctl, argv);
+      const ran = await runtime.runNode(runtime.scripts.storyctl, argv, { signal: exec?.signal });
       if (!ran.ok) {
         return runtime.failEnvelope({
           tool: TOOL_NAME,
           command: runtime.fmtCommand(command, ran.probe),
           exitCode: -1,
           status: "",
-          env: { python: ran.probe, node: null },
+          env: { python: null, node: ran.probe },
           stdout: "",
           stderr: "",
           sideEffects: [],
@@ -282,7 +282,7 @@ export function createWordcountTool(runtime) {
           command: runtime.fmtCommand(command, ran.probe),
           exitCode: outcome.exitCode,
           status: "",
-          env: { python: ran.probe, node: null },
+          env: { python: null, node: ran.probe },
           stdout: outcome.stdout,
           stderr: outcome.stderr,
           sideEffects: [],
@@ -298,7 +298,7 @@ export function createWordcountTool(runtime) {
           command: runtime.fmtCommand(command, ran.probe),
           exitCode: outcome.exitCode,
           status: "",
-          env: { python: ran.probe, node: null },
+          env: { python: null, node: ran.probe },
           stdout: outcome.stdout,
           stderr: outcome.stderr,
           sideEffects: [],
@@ -320,7 +320,7 @@ export function createWordcountTool(runtime) {
           command: runtime.fmtCommand(command, ran.probe),
           exitCode: outcome.exitCode,
           status: String(result?.status ?? "invalid"),
-          env: { python: ran.probe, node: null },
+          env: { python: null, node: ran.probe },
           result,
           stdout: outcome.stdout,
           stderr: outcome.stderr,
@@ -343,7 +343,7 @@ export function createWordcountTool(runtime) {
         command: runtime.fmtCommand(command, ran.probe),
         exitCode: 0,
         status: String(result?.status ?? ""),
-        env: { python: ran.probe, node: null },
+        env: { python: null, node: ran.probe },
         result,
         stdout: outcome.stdout,
         stderr: outcome.stderr,

@@ -46,7 +46,7 @@ apply(cleanupCtx, {});
 export const blockedButOk: Envelope<{ status: string }> = {
   ok: true, // 拿到了有效业务结果
   tool: "oh_story_chapter_check",
-  command: "python storyctl.py chapter check --project <书目录> --chapter 21",
+  command: "node storyctl.js chapter check --project <书目录> --chapter 21",
   exitCode: 1,
   status: "blocked", // 业务判定（被 quality 拦截）
   env: { python: { ok: true } },

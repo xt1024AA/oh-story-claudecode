@@ -69,7 +69,7 @@ dsh smoke-mini '调两个工具，把返回的原文各原样打印一遍：1) o
 
 ```
 OK oh_story_chapter_check（status: ready）
-等价命令：python D:\DS\插件\oh-story-claudecode\packages\dsh-plugin\skills\story-long-write\scripts\storyctl.py chapter check --project D:\DS\插件\oh-story-claudecode\demo\长篇\让你管账号，你高燃混剪炸全网 --chapter 21
+等价命令：node D:\DS\插件\oh-story-claudecode\packages\dsh-plugin\skills\story-long-write\scripts\storyctl.js chapter check --project D:\DS\插件\oh-story-claudecode\demo\长篇\让你管账号，你高燃混剪炸全网 --chapter 21
 退出码：0
 提示：
   - 本章可提交（available_actions 里有 commit）。
@@ -100,10 +100,10 @@ EXAMPLE-DONE
 底层脚本不依赖 DSH，可以直接跑 —— 这也是排障时确认「是脚本问题还是插件问题」的最快手段：
 
 ```powershell
-python "<repo>\packages\dsh-plugin\skills\story-long-write\scripts\storyctl.py" chapter check --project "<repo>\demo\长篇\让你管账号，你高燃混剪炸全网" --chapter 21
+node "<repo>\packages\dsh-plugin\skills\story-long-write\scripts\storyctl.js" chapter check --project "<repo>\demo\长篇\让你管账号，你高燃混剪炸全网" --chapter 21
 ```
 
-输出（**一行 JSON**，`storyctl.py` 的 stdout 契约）：
+输出（**一行 JSON**，`storyctl.js` 的 stdout 契约）：
 
 ```json
 {"schema":"story-chapter-check/v1","status":"ready","chapter":21,"length":{"metric":"visible_chars_v1","target":2300,"actual":2068,"status":"internal_pass",...},"quality":{"status":"pass","blocking_findings":[],...},"available_actions":["commit"]}
@@ -118,7 +118,7 @@ python "<repo>\packages\dsh-plugin\skills\story-long-write\scripts\storyctl.py" 
 ```powershell
 $tmp = Join-Path $env:TEMP "oh-story-mini-example"
 Copy-Item -Recurse "<repo>\demo\长篇\让你管账号，你高燃混剪炸全网" $tmp
-python "<repo>\packages\dsh-plugin\skills\story-long-write\scripts\storyctl.py" chapter check --project $tmp --chapter 21
+node "<repo>\packages\dsh-plugin\skills\story-long-write\scripts\storyctl.js" chapter check --project $tmp --chapter 21
 ```
 
 输出与第 4 步**逐字相同**（`status: ready`、`actual: 2068`、退出码 0），说明判定只取决于书目录本身，不依赖仓库里的隐藏状态。

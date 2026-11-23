@@ -5,7 +5,7 @@ description: story-short-analyze 输出契约。定义 Stage → 文件映射、
 
 # 输出契约：story-short-analyze ↔ story-short-write
 
-`story-short-analyze` 将短篇拆文产出存入 `拆文库/{书名}/`。`story-short-write` 构思新篇时结合报告、节点、手法与原文建立对标，正文阶段从已落盘的对标摘要召回。
+`story-short-analyze` 将短篇拆文产出存入 `拆文库/{书名}/`。`story-short-write` 构思新篇时结合报告、节点、手法与原文建立对标，正文阶段从已保存的对标摘要召回。
 
 ---
 
@@ -55,7 +55,7 @@ description: story-short-analyze 输出契约。定义 Stage → 文件映射、
     "setup_clues": 3,                   // 反转铺垫线索数（Stage 4）；无反转填 0
     "character_archetypes": 1,          // 有反差人物数（Stage 5）
     "reusable_structures": 2,           // 可复用结构条数（Stage 6）
-    "reversal_type": "视角反转"          // 反转类型枚举（视角/身份/动机/时间线/信息/认知/无反转）；甜宠/喜剧/报应型填「无反转」；多层反转取对结局影响最大的一层
+    "reversal_type": "视角反转"          // 反转类型枚举（视角/身份/动机/时间线/信息/认知/无反转）；甜宠/喜剧/日常/报应型等填「无反转」；多层反转取对结局影响最大的一层
   }
 }
 ```
@@ -74,7 +74,7 @@ description: story-short-analyze 输出契约。定义 Stage → 文件映射、
 - `last_stage_in_progress` 为空且 `stages_completed` 不含 `6` → 从 `max(stages_completed) + 1` 开始；尚无完成阶段时从 Stage 2 开始。
 - `stages_completed` 含 6 → 已完成，只询问用户覆盖或取消。
 
-**Stage 6 完成须同时满足内容写完与验收通过**。验收未过前，`last_stage_in_progress` 保持 `6`，`stages_completed` 不含 `6`。续跑时若综合段与 `structure_counts` 已完整落盘，只重跑验收；验收发现内容缺失则补足对应产出。
+**Stage 6 完成须同时满足内容写完与验收通过**。验收未过前，`last_stage_in_progress` 保持 `6`，`stages_completed` 不含 `6`。续跑时若综合段与 `structure_counts` 已完整保存，只重跑验收；验收发现内容缺失则补足对应产出。
 
 ---
 
@@ -92,7 +92,7 @@ Stage 6 内容写完后、将 `6` 追加到 `stages_completed[]` 前，依次跑
 
 | 字段 | 要求 | 不达标 |
 |------|------|--------|
-| `structure_counts.beats` | ≥ 4（结构划分含开端/发展/高潮/结局）| 阻断 |
+| `structure_counts.beats` | ≥ 1（完本通常 ≥ 4，含开端/发展/高潮/结局；半成品导入或极短片段按实际已有功能段计）| 阻断 |
 | `hooks` / `setup_clues` / `character_archetypes` / `reusable_structures` | 已写入非负整数，与报告对应段一致 | 阻断 |
 | `structure_counts.reversal_type` | 在枚举内（含「无反转」）| 阻断 |
 | `genre_detected` | 追妻、重生复仇、死人文学、小三、世情、豪门、宫斗宅斗、民俗、悬疑、甜宠、双男主、沙雕、仙侠之一，或「通用」 | 阻断 |

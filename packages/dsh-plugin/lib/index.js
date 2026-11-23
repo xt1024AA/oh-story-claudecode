@@ -66,8 +66,11 @@ const TAG = "[dsh-oh-story-claudecode]";
  * 0.2.3：跟上上游 v0.9.2——随包 skill 13 → 14（新增 story-publish，番茄建书资料）。
  * 0.2.4：兼容基线扩到 DSH 0.2.1-rc.5（本机在用的运行时），在该版本上复验工具面与 35 项工具测试。
  * 0.2.5：跟上上游 v0.10.0「长篇与短篇写作清理」——vendored skills 全量重新同步（随包仍是 14 个 skill）。
+ * 0.2.6：跟上上游 v0.10.3「精简重复指令与培训说教」——净删减，路由表与公式保留。
+ * 0.2.7：跟上上游 v0.10.3 之后的 4 个修补提交（Dashboard 表格、短篇拆文单份清单）并把白名单扩到 docs/tests。
+ * 0.2.8：跟上上游 v0.11.0——随包脚本由 Python 全面转 Node，工具执行链改走 runNode，检测器加 review_required 档。
  */
-const VERSION = "0.2.7";
+const VERSION = "0.2.8";
 
 /** 随包 skills 根目录：与 lib/ 同级。用 import.meta.url 解析，保证插件被装到别处也能读。 */
 const BUNDLED_SKILL_DIR = fileURLToPath(new URL("../skills/", import.meta.url));

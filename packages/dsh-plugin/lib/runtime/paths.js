@@ -28,8 +28,8 @@ export function defaultSkillsRoot() {
 
 /** 关键脚本相对 skills 根的路径（storyctl 只存在 story-long-write）。 */
 export const SCRIPT_REL_PATHS = {
-  storyctl: "story-long-write/scripts/storyctl.py",
-  wordcountCore: "story-long-write/scripts/wordcount_core.py",
+  storyctl: "story-long-write/scripts/storyctl.js",
+  wordcountCore: "story-long-write/scripts/wordcount_core.js",
   aiPatterns: "story-deslop/scripts/check-ai-patterns.js",
   degeneration: "story-deslop/scripts/check-degeneration.js",
   punctuation: "story-deslop/scripts/normalize-punctuation.js",

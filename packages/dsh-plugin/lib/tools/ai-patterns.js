@@ -19,11 +19,14 @@ export function createAiPatternsTool(runtime) {
     name: TOOL_NAME,
     description:
       "AI 味句式扫描（check-ai-patterns.js --check --json）：对正文文件检出确定性 AI 句式" +
-      "（em-dash 破折号、not-is-comparison、negation-parade、trailer-ending 等，blocking 级）与套词密度" +
-      "（advisory 级）。只报告不改写。result.findings 每项含 file/line/column/type/severity/message/excerpt。" +
+      "（em-dash 破折号、not-is-comparison、negation-parade、trailer-ending 等，review_required 级）与套词密度" +
+      "（advisory 级）；hard blocking 级另计。只报告不改写。result.findings 每项含 file/line/column/type/severity/message/excerpt。" +
       "status=clean 表示无发现；status=findings 表示有发现（exit 1，属业务结果）。用于写作后的 AI 味预检与收尾复扫。",
     scriptKey: "aiPatterns",
-    defaultFailOn: "blocking",
+    // v0.11.0 起上游把风格规则分成 blocking / review_required / advisory 三档，
+    // 当前句式规则里没有 hard blocking；默认用 review_required 才能让 em-dash 这类
+    // 确定性问题真的触发 exit 1（选 blocking 会一律报 clean）。
+    defaultFailOn: "review_required",
     extraNotes: [
       "blocking 级句式应先改正文再复扫；advisory 级（套词密度）先通读全文判断。",
       "扫描会读书内白名单 .deslop-whitelist（正文/ 下时取父目录的父目录，否则取文件所在目录）。",

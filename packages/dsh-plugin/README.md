@@ -3,9 +3,17 @@
 把 [oh-story-claudecode](https://github.com/zenstory-ai/oh-story-claudecode) 的网文写作能力搬进
 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)（DSH）的插件。
 
-> **当前状态：v0.2.7** —— 14 个 skill 随包交付（vendored + parity 校验，#7）；写作闭环核心的确定性
+> **当前状态：v0.2.8** —— 14 个 skill 随包交付（vendored + parity 校验，#7）；写作闭环核心的确定性
 > 脚本封装为 8 个 `oh_story_*` 工具（#8）；本机装机的两种 spec、真实业务结果与边界补测见
 > [`docs/verification/2026-10-05-machine-smoke.md`](docs/verification/2026-10-05-machine-smoke.md)。
+>
+> **v0.2.8 跟上上游 v0.11.0「零依赖 Node.js 运行时、五端共享 Hook 与分层写作门禁」**（tag `v0.11.0`
+> = `e5a8b98`，`agents_version: 45` / `setup_skill_version: 1.3.13`）：上游把 skill 内全部 Python 脚本换成
+> Node（`storyctl.js`、`wordcount_core.js`、`tracking_commit.js` 等 16 个），10 个 `.sh` hook 合并为
+> `story_hook_core.js` + `story_hook_cli.js` + `run-story-hook.sh`，7 条旧守卫并入 `scripts/lint-repo.py`。
+> 本子包相应地把 8 个工具的执行链从 Python 切到 Node（`paths.js` 指向 `.js`；`env` 明说 Python 已可选），
+> 检测器的 `failOn` 增加 v0.11.0 的 `review_required` 档，`check-parity` 改为 **421 个文件逐字节相同**
+> （上游删了 70 个旧脚本与参考文件）。兼容基线加 DSH `0.2.2-rc.5`（本机在用的运行时）。
 >
 > **v0.2.7 跟上上游 v0.10.3 之后的 4 个修补提交**（截至 `origin/main` `41d28fc`，上游**没有**发新 tag，
 > `skills/story/VERSION` 仍是 0.10.3，`agents_version` 仍是 42 / `setup_skill_version` 1.3.10）：
@@ -104,33 +112,33 @@ packages/dsh-plugin/
 
 | 项 | 要求 | 说明 |
 | --- | --- | --- |
-| DSH | `^0.2.0-rc.2`（`0.2.0-rc.2`、`0.2.1-rc.2` 与 `0.2.1-rc.5` 实测） | 唯一被强制的依赖是 `peerDependencies` 里的 `@deepseek-ai/dsh-skill-filesystem`（宿主提供，本包不装）；范围必须覆盖你实际在用的运行时，详见上一节 |
-| Node | ≥ 24（`engines.node`） | 三个检测器是 Node 脚本；PATH 里没有 `node` 时回退**宿主内置 Node**（Electron-as-node） |
-| Python | 3.x | 探测链 `python3 → python → py -3`，每个候选**实跑** `-c ""` 验证；**自动跳过 Microsoft Store 占位程序**（本机 `python3` exit 9009，落到 `python`） |
+| DSH | `^0.2.0-rc.2`（`0.2.0-rc.2`、`0.2.1-rc.2`、`0.2.1-rc.5` 与 `0.2.2-rc.5` 实测） | 唯一被强制的依赖是 `peerDependencies` 里的 `@deepseek-ai/dsh-skill-filesystem`（宿主提供，本包不装）；范围必须覆盖你实际在用的运行时，详见上一节 |
+| Node | ≥ 24（`engines.node`） | **全部随包脚本**（storyctl / 三个检测器 / wordcount_core）都是 Node 脚本；PATH 里没有 `node` 时回退**宿主内置 Node**（Electron-as-node） |
+| Python | 可选 | v0.11.0 起插件不再依赖 Python；`oh_story_env` 仍会探测 `python3 → python → py -3`（跳过 Microsoft Store 占位程序）供旧项目排障 |
 | OS | 实测 Windows；脚本本身跨平台 | `dsh plugin` 是 pnpm 转发（随 DSH 自带） |
 
 要点：
 
 - 解释器只在**工具调用时**探测，结果随信封的 `env` 字段返回；`oh_story_env` 是集中查看入口。
-- 缺 Python → 字数/chapter 工具返回 `PYTHON_UNAVAILABLE`（错误码 + 人话 + 下一步）；缺 Node → 三个检测器返回 `NODE_UNAVAILABLE`。
+- 缺 Node → 全部工具返回 `NODE_UNAVAILABLE`（错误码 + 人话 + 下一步）；缺 Python 不影响任何工具（v0.11.0 起）。
 - 想强制指定解释器：`OH_STORY_PYTHON` / `OH_STORY_NODE`（配错即报错，不静默回退）；`OH_STORY_DISABLE_HOST_NODE=1` 关掉宿主 Node 回退。
 
 ## 工具面
 
 | 工具 | 只读 / 破坏性 | 做什么 |
 | --- | --- | --- |
-| `oh_story_env` | 只读 | Python（python3→python→py -3，跳过 Store 占位）与 Node 探测链 + 随包脚本落点诊断 |
+| `oh_story_env` | 只读 | Node 探测链（含宿主内置回退）+ 随包脚本落点诊断；Python 探测链作为可选信息一并列出 |
 | `oh_story_wordcount` | 只读 | 字数口径 visible_chars_v1（measure / check / checkpoint） |
 | `oh_story_chapter_check` | 默认只读；`fixPunctuation=true` 破坏性（审批） | storyctl chapter check 完整写后检查 |
 | `oh_story_chapter_commit` | 破坏性（独立工具名 + 审批，不幂等） | storyctl chapter commit；事务过期给「重新 draft」的下一步 |
-| `oh_story_ai_patterns_check` | 只读 | check-ai-patterns.js：AI 味句式扫描 |
+| `oh_story_ai_patterns_check` | 只读 | check-ai-patterns.js：AI 味句式扫描（blocking / review_required / advisory 三档，默认门槛 review_required） |
 | `oh_story_degeneration_check` | 只读 | check-degeneration.js：退化信号扫描 |
 | `oh_story_punctuation_normalize` | 默认只读；`fix=true` 破坏性（审批） | normalize-punctuation.js：机械标点归一 |
 | `oh_story_probe` | 只读 | 装机探针：插件名/版本/skills 挂载状态/**工具面此刻在册几个**（#9 起在调用时回读注册表 —— `register()` 成功 ≠ 工具在册） |
 
 安全语义（#12 裁决）：**默认只读**，破坏性动作必须显式开关并走**人工审批**（`ctx.approval.request`）；
 审批通道不可用时回退显式 `confirm: true`（如实标注，非人工审批）。`chapter commit` 不幂等：同份事务
-JSON 重跑必失败，工具返回 `TRANSACTION_STALE` 并给出「重新 `tracking_commit.py draft` 再提交」的下一步。
+JSON 重跑必失败，工具返回 `TRANSACTION_STALE` 并给出「重新 `tracking_commit.js draft` 再提交」的下一步。
 
 所有工具返回统一信封：`{ ok, tool, command, exitCode, status, env, counts?, result, stdout, stderr,
 sideEffects, approval?, error?, notes }`。**`ok` = 这次调用有没有拿到有效业务结果，不是业务判定通过**：
@@ -161,7 +169,7 @@ Done in 365ms using pnpm v11.7.0
 ```powershell
 cd <本目录>
 npm pack --pack-destination <输出目录>
-dsh plugin --profile <profile> add "<输出目录>\dsh-oh-story-claudecode-0.2.7.tgz"
+dsh plugin --profile <profile> add "<输出目录>\dsh-oh-story-claudecode-0.2.8.tgz"
 ```
 
 实测输出（`npm pack`，2026-10-18 v0.2.2）：
@@ -242,17 +250,17 @@ dsh <profile> '调 oh_story_chapter_check，参数 project="<书目录>"、chapt
 | `node scripts/check-manifest.mjs` | **清单与 DSH 兼容性**（v0.2.2 新增）：peer 是范围且覆盖 `SUPPORTED_RUNTIMES` 每个基线、拒绝 `engines.dsh`、`VERSION`/包名/patch 行 id 三处一致、`exports`+`files` 覆盖 locale 与 icon、icon ≤256 KiB、14 个 skill 的 frontmatter 满足宿主硬要求 | `[check-manifest] 全部通过。` |
 | `node scripts/test-manifest-guard.mjs` | 上面那个守卫的**变异回归**：把 0.2.1 事故等 13 种复现形态逐个造出来断言变红，再还原复绿（fail-closed 语法、包目录不存在也判红） | `清单守卫回归：14 项，0 项失败。` |
 | `node scripts/test-tools.mjs` | 35 项：A 组装配通路 + 真实业务结果（demo 书/正文）；B 组全部错误路径（Python/Node 不可用、脚本缺失、审批拒绝/不可用、事务过期…）；信封形状逐项校验 | `工具面测试：35 项，0 项失败。` |
-| `node scripts/check-parity.mjs` | `skills/` 副本与仓库根 `skills/` 逐字节一致（绿 / 人为注入即红 / 还原复绿） | `[check-parity] 一致：434 个文件逐字节相同。` |
+| `node scripts/check-parity.mjs` | `skills/` 副本与仓库根 `skills/` 逐字节一致（绿 / 人为注入即红 / 还原复绿） | `[check-parity] 一致：421 个文件逐字节相同。` |
 | `npx --yes -p typescript@5 tsc --noEmit --strict --target es2022 --module nodenext --moduleResolution nodenext examples/types/consumer.ts` | `lib/index.d.ts` 的类型声明可用（编译期契约检查，不运行） | 退出码 0（反例见「类型声明」一节） |
 | `node scripts/sync-skills.mjs` | 从根 `skills/` 同步 vendored 副本（`--check` 只读） | — |
 
 （`package.json` 里有 `test:manifest` / `test:manifest-guard` / `test:tools` / `test:parity` / `test:types` 的
 npm script 别名，`npm test` 一次跑前四项；前提是 PATH 里有 `pnpm` 或 `npm`。）
 
-仓库级守卫（根目录，`bash` + `python` 环境见仓库 `AGENTS.md`）：`scripts/static-check.sh`、
-`scripts/check-doc-budget.sh`、`scripts/check-shared-files.sh`、`scripts/check-current-skill-contracts.sh`、
-`scripts/check-python-invocation.sh`、`scripts/check-agent-notes.py`、`scripts/check-plugin-packaging.py`
-——本子包对它们零影响（#10 逐个扫描面取证），上述七条在 #11 收尾时全绿。
+仓库级守卫（根目录，环境见仓库 `AGENTS.md`）：`python scripts/lint-repo.py`（static / contracts / shared /
+numbering 四合一，v0.11.0 起替代 7 条旧脚本）、`node scripts/check-doc-budget.mjs`、
+`bash scripts/check-python-invocation.sh`、`python scripts/check-plugin-packaging.py`——本子包对它们零影响
+（#10 逐个扫描面取证），上述四类在 v0.2.8 收尾时全绿。
 
 ## 类型声明
 

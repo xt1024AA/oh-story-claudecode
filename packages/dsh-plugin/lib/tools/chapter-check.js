@@ -1,5 +1,5 @@
 /**
- * oh_story_chapter_check —— storyctl.py chapter check 的封装。
+ * oh_story_chapter_check —— storyctl.js chapter check 的封装。
  *
  * 契约（#3）与安全语义（#12）在这里交汇：
  *
@@ -24,7 +24,7 @@ import { ERROR_CODES, toolError } from "../runtime/errors.js";
 
 const TOOL_NAME = "oh_story_chapter_check";
 
-/** storyctl 的章工作目录：第{N:0width}章，width = max(3, 位数)（storyctl.py:80-82）。 */
+/** storyctl 的章工作目录：第{N:0width}章，width = max(3, 位数)（storyctl.js 的 chapterWorkDir）。 */
 export function chapterWorkDir(project, chapter) {
   const width = Math.max(3, String(chapter).length);
   return join(project, ".story", "work", `第${String(chapter).padStart(width, "0")}章`);
@@ -85,7 +85,7 @@ export function createChapterCheckTool(runtime) {
   return makeTool({
     name: TOOL_NAME,
     description:
-      "storyctl.py chapter check 的封装：对一章跑完整写后检查（AI 句式、退化、标点、细纲照搬、字数），" +
+      "storyctl.js chapter check 的封装：对一章跑完整写后检查（AI 句式、退化、标点、细纲照搬、字数），" +
       "返回 result.status = ready / needs_decision / blocked / invalid / tool_unavailable 与 available_actions。" +
       "默认只读；status=blocked 是业务判定（本章被 quality 拦截），不是工具故障。想先整理标点再检查时" +
       "显式给 fixPunctuation=true（破坏性，需人工审批）。纯检查在章节超长时仍会写" +
@@ -202,16 +202,16 @@ export function createChapterCheckTool(runtime) {
       if (range.minChars !== null) argv.push("--min-chars", String(range.minChars));
       if (range.maxChars !== null) argv.push("--max-chars", String(range.maxChars));
       if (fixPunctuation) argv.push("--fix-punctuation");
-      const command = buildCommand("{python}", runtime.scripts.storyctl, argv);
+      const command = buildCommand("{node}", runtime.scripts.storyctl, argv);
 
-      const ran = await runtime.runPython(runtime.scripts.storyctl, argv, { signal: exec?.signal });
+      const ran = await runtime.runNode(runtime.scripts.storyctl, argv, { signal: exec?.signal });
       if (!ran.ok) {
         return runtime.failEnvelope({
           tool: TOOL_NAME,
           command: runtime.fmtCommand(command, ran.probe),
           exitCode: -1,
           status: "",
-          env: { python: ran.probe, node: null },
+          env: { python: null, node: ran.probe },
           stdout: "",
           stderr: "",
           sideEffects: [],
@@ -226,7 +226,7 @@ export function createChapterCheckTool(runtime) {
           command: runtime.fmtCommand(command, ran.probe),
           exitCode: outcome.exitCode,
           status: "",
-          env: { python: ran.probe, node: null },
+          env: { python: null, node: ran.probe },
           stdout: outcome.stdout,
           stderr: outcome.stderr,
           sideEffects: [],
@@ -242,7 +242,7 @@ export function createChapterCheckTool(runtime) {
           command: runtime.fmtCommand(command, ran.probe),
           exitCode: outcome.exitCode,
           status: "",
-          env: { python: ran.probe, node: null },
+          env: { python: null, node: ran.probe },
           stdout: outcome.stdout,
           stderr: outcome.stderr,
           sideEffects: [],
@@ -278,7 +278,7 @@ export function createChapterCheckTool(runtime) {
           command: runtime.fmtCommand(command, ran.probe),
           exitCode: 3,
           status: "tool_unavailable",
-          env: { python: ran.probe, node: null },
+          env: { python: null, node: ran.probe },
           result,
           stdout: outcome.stdout,
           stderr: outcome.stderr,
@@ -300,7 +300,7 @@ export function createChapterCheckTool(runtime) {
           command: runtime.fmtCommand(command, ran.probe),
           exitCode: 2,
           status: String(result?.status ?? "error"),
-          env: { python: ran.probe, node: null },
+          env: { python: null, node: ran.probe },
           result,
           stdout: outcome.stdout,
           stderr: outcome.stderr,
@@ -339,7 +339,7 @@ export function createChapterCheckTool(runtime) {
         command: runtime.fmtCommand(command, ran.probe),
         exitCode: outcome.exitCode,
         status,
-        env: { python: ran.probe, node: null },
+        env: { python: null, node: ran.probe },
         result,
         stdout: outcome.stdout,
         stderr: outcome.stderr,

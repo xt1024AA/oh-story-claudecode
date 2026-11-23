@@ -1,5 +1,5 @@
 /**
- * oh_story_chapter_commit —— storyctl.py chapter commit 的封装。
+ * oh_story_chapter_commit —— storyctl.js chapter commit 的封装。
  *
  * 这是全套件里**最重的破坏性工具**（#12 的原话场景）：
  *   - 原子写 `追踪/_tracking-state.json` 与全部派生视图；
@@ -11,11 +11,11 @@
  *   - 独立工具名 = 显式开关（模型不可能顺手提交）；
  *   - **每次执行都必须过人工审批**（`approval.request`），拒绝即终局；
  *   - 审批通道不可用时回退 `confirm: true`（显式确认），并在返回里如实标注；
- *   - 不幂等失败返回**可读报错 + 正确下一步**（重跑 `tracking_commit.py draft`
+ *   - 不幂等失败返回**可读报错 + 正确下一步**（重跑 `tracking_commit.js draft`
  *     生成新事务 JSON 再提交）。
  *
  * 提交前建议链路（写入 description 让模型照着走）：先 `oh_story_chapter_check`
- * 拿到 ready，再 `tracking_commit.py draft`（本工具不封装 draft——它是纯生成，
+ * 拿到 ready，再 `tracking_commit.js draft`（本工具不封装 draft——它是纯生成，
  * 作者/模型用 shell 或现有宿主工具跑），拿到事务 JSON 后提交。
  */
 
@@ -35,7 +35,7 @@ function commitError(errorCode, message, project, chapter) {
         return toolError(
           ERROR_CODES.TRANSACTION_STALE,
           "事务已过期：追踪状态在生成这份事务 JSON 之后被改动过（`tracking state changed since this transaction was prepared`）。storyctl 的 chapter commit 不幂等，同份事务重跑必然失败。",
-          `重新生成事务：运行 tracking_commit.py draft --project "${project}" --chapter ${chapter}，得到新的事务 JSON 后把它的路径传给 --input 再提交。`,
+          `重新生成事务：运行 tracking_commit.js draft --project "${project}" --chapter ${chapter}，得到新的事务 JSON 后把它的路径传给 --input 再提交。`,
         );
       }
       return toolError(
@@ -97,9 +97,9 @@ export function createChapterCommitTool(runtime) {
   return makeTool({
     name: TOOL_NAME,
     description:
-      "storyctl.py chapter commit 的封装：把一章正式提交进追踪（写 追踪/_tracking-state.json 与派生视图，" +
+      "storyctl.js chapter commit 的封装：把一章正式提交进追踪（写 追踪/_tracking-state.json 与派生视图，" +
       "删本章工作目录）。**破坏性 + 不幂等**：每次调用都需要人工审批；同一份 --input 事务 JSON 重跑必失败。" +
-      "提交前先用 oh_story_chapter_check 拿到 ready，再用 tracking_commit.py draft 生成事务 JSON，最后提交。" +
+      "提交前先用 oh_story_chapter_check 拿到 ready，再用 tracking_commit.js draft 生成事务 JSON，最后提交。" +
       "失败时按 error_code 处理：事务过期（TRANSACTION_STALE）的正确下一步是重新 draft 再提交。",
     parameters: {
       type: "object",
@@ -109,7 +109,7 @@ export function createChapterCommitTool(runtime) {
         chapter: { type: "integer", description: "章节号（≥1）" },
         input: {
           type: "string",
-          description: "逐章事务 JSON 的路径（tracking_commit.py draft 生成，通常在 .story/work/第{NNN}章/tracking.json）",
+          description: "逐章事务 JSON 的路径（tracking_commit.js draft 生成，通常在 .story/work/第{NNN}章/tracking.json）",
         },
         minChars: { type: "integer", description: "作者字数下限（须与 maxChars 同给）" },
         maxChars: { type: "integer", description: "作者字数上限（须与 minChars 同给）" },
@@ -220,16 +220,16 @@ export function createChapterCommitTool(runtime) {
       const argv = ["chapter", "commit", "--project", proj.path, "--chapter", String(chapter.value), "--input", input.path];
       if (range.minChars !== null) argv.push("--min-chars", String(range.minChars));
       if (range.maxChars !== null) argv.push("--max-chars", String(range.maxChars));
-      const command = buildCommand("{python}", runtime.scripts.storyctl, argv);
+      const command = buildCommand("{node}", runtime.scripts.storyctl, argv);
 
-      const ran = await runtime.runPython(runtime.scripts.storyctl, argv, { signal: exec?.signal });
+      const ran = await runtime.runNode(runtime.scripts.storyctl, argv, { signal: exec?.signal });
       if (!ran.ok) {
         return runtime.failEnvelope({
           tool: TOOL_NAME,
           command: runtime.fmtCommand(command, ran.probe),
           exitCode: -1,
           status: "",
-          env: { python: ran.probe, node: null },
+          env: { python: null, node: ran.probe },
           stdout: "",
           stderr: "",
           sideEffects: [],
@@ -244,7 +244,7 @@ export function createChapterCommitTool(runtime) {
           command: runtime.fmtCommand(command, ran.probe),
           exitCode: outcome.exitCode,
           status: "",
-          env: { python: ran.probe, node: null },
+          env: { python: null, node: ran.probe },
           stdout: outcome.stdout,
           stderr: outcome.stderr,
           sideEffects: [],
@@ -260,7 +260,7 @@ export function createChapterCommitTool(runtime) {
           command: runtime.fmtCommand(command, ran.probe),
           exitCode: outcome.exitCode,
           status: "",
-          env: { python: ran.probe, node: null },
+          env: { python: null, node: ran.probe },
           stdout: outcome.stdout,
           stderr: outcome.stderr,
           sideEffects: [],
@@ -298,7 +298,7 @@ export function createChapterCommitTool(runtime) {
           command: runtime.fmtCommand(command, ran.probe),
           exitCode: 3,
           status: "tool_unavailable",
-          env: { python: ran.probe, node: null },
+          env: { python: null, node: ran.probe },
           result,
           stdout: outcome.stdout,
           stderr: outcome.stderr,
@@ -320,7 +320,7 @@ export function createChapterCommitTool(runtime) {
           command: runtime.fmtCommand(command, ran.probe),
           exitCode: outcome.exitCode,
           status: String(result?.status ?? "error"),
-          env: { python: ran.probe, node: null },
+          env: { python: null, node: ran.probe },
           result,
           stdout: outcome.stdout,
           stderr: outcome.stderr,
@@ -341,7 +341,7 @@ export function createChapterCommitTool(runtime) {
         command: runtime.fmtCommand(command, ran.probe),
         exitCode: 0,
         status: "committed",
-        env: { python: ran.probe, node: null },
+        env: { python: null, node: ran.probe },
         result,
         stdout: outcome.stdout,
         stderr: outcome.stderr,

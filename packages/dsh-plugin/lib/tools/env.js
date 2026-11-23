@@ -27,10 +27,10 @@ export function createEnvTool(runtime) {
   return makeTool({
     name: TOOL_NAME,
     description:
-      "检查 DSH 插件 dsh-oh-story-claudecode 的写作工具运行环境：Python 探测链（python3 → python → py -3，" +
-      "会跳过 Microsoft Store 占位程序）与 Node（PATH 里的 node，必要时回退宿主内置 Node）各自是否可用、" +
-      "版本号、每个候选的实测结果，以及随包脚本（storyctl / 三个检测器 / wordcount_core）是否就位。" +
-      "只读，不读写任何用户文件。在其它写作工具报「Python/Node 不可用」或「脚本缺失」时，先用本工具定位。",
+      "检查 DSH 插件 dsh-oh-story-claudecode 的写作工具运行环境：Node（PATH 里的 node，必要时回退宿主内置 Node）" +
+      "是否可用、版本号、各候选的实测结果，以及随包脚本（storyctl / 三个检测器 / wordcount_core，v0.11.0 起全是 Node 脚本）" +
+      "是否就位；同时列出 Python 探测链（python3 → python → py -3，会跳过 Microsoft Store 占位程序）的现状，供旧项目排查参考。" +
+      "只读，不读写任何用户文件。在其它写作工具报「Node 不可用」或「脚本缺失」时，先用本工具定位。",
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -62,8 +62,8 @@ export function createEnvTool(runtime) {
       };
 
       const notes = [];
-      if (!python.ok) notes.push("Python 不可用：storyctl 与字数工具都无法运行。");
-      if (!node.ok) notes.push("Node 不可用：三个检测器工具无法运行；storyctl 的 chapter 检查也会报 tool_unavailable。");
+      if (!node.ok) notes.push("Node 不可用：storyctl（字数/章节检查/提交）与三个检测器都无法运行，请装 Node.js 18+。");
+      if (!python.ok) notes.push("Python 不可用（不影响本插件）：v0.11.0 起随包脚本全是 Node，Python 仅在旧项目里作参考。");
       const missing = scriptChecks.filter((s) => !s.exists).map((s) => s.key);
       if (missing.length > 0) notes.push(`随包脚本缺失：${missing.join("、")}（安装包可能被裁剪）。`);
 
